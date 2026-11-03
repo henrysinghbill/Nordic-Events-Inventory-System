@@ -1,0 +1,13 @@
+{
+  "name": "nordic-events-inventory-migrate",
+  "private": true,
+  "description": "Only the tools needed to run 'prisma migrate deploy' when the container starts.",
+  "dependencies": {
+    "prisma": "7.10.1",
+    "dotenv": "18.0.9"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.1": true,
+    "prisma@7.10.1": true
+  }
+}

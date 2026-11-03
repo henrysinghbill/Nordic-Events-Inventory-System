@@ -1,0 +1,45 @@
+# Runs the whole app: PostgreSQL + the web app, with persistent storage.
+#
+#   1. cp .env.example .env   and fill it in
+#   2. docker compose up -d --build
+#   3. open http://localhost:3000  (put HTTPS in front of it in production — see DEPLOY.md)
+#
+# Data lives in two named volumes: "pgdata" (database) and "photos" (uploaded photos).
+name: nordic-inventory
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: inventory
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: inventory
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    image: nordic-events-inventory:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # These override .env so the app always talks to the "db" container above.
+      DATABASE_URL: postgresql://inventory:${POSTGRES_PASSWORD}@db:5432/inventory
+      UPLOAD_DIR: /data/uploads
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - photos:/data/uploads
+
+volumes:
+  pgdata:
+  photos:

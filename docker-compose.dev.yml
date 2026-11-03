@@ -1,0 +1,27 @@
+# Development only: runs just PostgreSQL so you can run the app with `npm run dev`.
+# Start it with:  docker compose -f docker-compose.dev.yml up -d
+# The database is only reachable from this computer (127.0.0.1).
+name: nordic-inventory-dev
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: inventory
+      POSTGRES_PASSWORD: inventory
+      POSTGRES_DB: inventory
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - devdb:/var/lib/postgresql/data
+      # Creates the separate database used by the automated tests.
+      - ./docker/dev-init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  devdb:

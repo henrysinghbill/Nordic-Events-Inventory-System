@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-brand-50: #eef6f7;
+  --color-brand-100: #d5e9ec;
+  --color-brand-200: #acd3d9;
+  --color-brand-500: #2b7f8c;
+  --color-brand-600: #1f6874;
+  --color-brand-700: #18535d;
+  --color-brand-800: #133f47;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: #f4f5f6;
+  color: #1c2024;
+}
+
+/* iOS zooms into inputs with text smaller than 16px; keep them at 16px. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Room for the bottom navigation bar and the iPhone home indicator. */
+.pb-safe-nav {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+.bottom-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (min-width: 768px) {
+  .pb-safe-nav {
+    padding-bottom: 2rem;
+  }
+}

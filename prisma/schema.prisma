@@ -1,0 +1,263 @@
+// Database schema for the Nordic Events Inventory.
+//
+// Structure:  Location → Boxes → Holdings,  plus  Location → loose Holdings.
+// A Holding is a quantity of one Item, either inside a Box or loose at a Location.
+//
+// Some rules can't be expressed in Prisma and are added as raw SQL in the
+// migrations (see prisma/migrations/*_constraints):
+//   - a Holding is in exactly one of (box, location)
+//   - Holding.quantity > 0 (empty holdings are deleted)
+//   - DHL piece IDs and "other" barcodes are unique; waybills may repeat
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum LocationType {
+  STORAGE
+  VENUE
+}
+
+enum BoxStatus {
+  AT_LOCATION
+  IN_TRANSIT
+}
+
+enum BarcodeType {
+  DHL_PIECE
+  DHL_WAYBILL
+  OTHER
+}
+
+enum HistoryAction {
+  ITEM_CREATED
+  ITEM_EDITED
+  ITEM_ARCHIVED
+  ITEM_RESTORED
+  PHOTO_ADDED
+  PHOTO_REMOVED
+  STOCK_ADDED
+  QUANTITY_ADJUSTED
+  BOX_CREATED
+  BOX_EDITED
+  PACKED
+  UNPACKED
+  SHIPPED
+  ARRIVED
+  BOX_DELETED
+  BARCODE_LINKED
+  LOCATION_CREATED
+  LOCATION_EDITED
+  LOCATION_ARCHIVED
+  LOCATION_RESTORED
+  COMPANY_CREATED
+  COMPANY_RENAMED
+  COMPANY_ARCHIVED
+  COMPANY_RESTORED
+  COMPANY_DELETED
+  USER_CHANGED
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  /// Always stored lower-case; matched against the login provider's username.
+  username     String    @unique
+  displayName  String
+  email        String?
+  role         Role      @default(MEMBER)
+  active       Boolean   @default(true)
+  /// Only used by the local login provider. Null for VMS users.
+  passwordHash String?
+  createdAt    DateTime  @default(now())
+  lastLoginAt  DateTime?
+
+  sessions Session[]
+}
+
+model Session {
+  /// HMAC of the random token stored in the browser cookie (the token itself is never stored).
+  id         String   @id
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([userId])
+}
+
+model Company {
+  id         Int           @id @default(autoincrement())
+  name       String        @unique
+  archivedAt DateTime?
+  items      ItemCompany[]
+}
+
+model Location {
+  id         Int          @id @default(autoincrement())
+  name       String       @unique
+  country    String
+  type       LocationType
+  notes      String?
+  archivedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  holdings          Holding[]
+  boxes             Box[]     @relation("BoxLocation")
+  boxesFrom         Box[]     @relation("BoxOrigin")
+  boxesTo           Box[]     @relation("BoxDestination")
+}
+
+model Item {
+  id                Int       @id @default(autoincrement())
+  name              String
+  description       String?
+  lowStockThreshold Int?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  companies ItemCompany[]
+  /// The photo with the lowest position is the main photo.
+  photos    Photo[]
+  holdings  Holding[]
+
+  @@index([name])
+}
+
+model ItemCompany {
+  itemId    Int
+  companyId Int
+  item      Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@id([itemId, companyId])
+  @@index([companyId])
+}
+
+model Photo {
+  id        Int      @id @default(autoincrement())
+  /// Random file name stem. Files: {UPLOAD_DIR}/{key}.webp and {key}_thumb.webp
+  key       String   @unique
+  itemId    Int?
+  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  boxId     Int?
+  box       Box?     @relation(fields: [boxId], references: [id], onDelete: Cascade)
+  width     Int
+  height    Int
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([itemId, position])
+  @@index([boxId])
+}
+
+model Box {
+  /// The id doubles as the box number (BOX-0047). Postgres sequences never reuse numbers.
+  id            Int       @id @default(autoincrement())
+  status        BoxStatus @default(AT_LOCATION)
+  /// Null while in transit.
+  locationId    Int?
+  location      Location? @relation("BoxLocation", fields: [locationId], references: [id])
+  originId      Int?
+  origin        Location? @relation("BoxOrigin", fields: [originId], references: [id])
+  destinationId Int?
+  destination   Location? @relation("BoxDestination", fields: [destinationId], references: [id])
+  description   String?
+  createdAt     DateTime  @default(now())
+  /// Soft delete: hidden everywhere, but kept so history still makes sense.
+  deletedAt     DateTime?
+
+  holdings Holding[]
+  barcodes Barcode[]
+  photos   Photo[]
+
+  @@index([locationId])
+}
+
+model Barcode {
+  id        Int         @id @default(autoincrement())
+  boxId     Int
+  box       Box         @relation(fields: [boxId], references: [id])
+  type      BarcodeType
+  /// Normalised value (see src/server/barcodes).
+  value     String
+  createdAt DateTime    @default(now())
+
+  @@unique([boxId, value])
+  @@index([value])
+}
+
+model Holding {
+  id         Int       @id @default(autoincrement())
+  itemId     Int
+  item       Item      @relation(fields: [itemId], references: [id])
+  quantity   Int
+  /// Exactly one of boxId / locationId is set (enforced in SQL).
+  boxId      Int?
+  box        Box?      @relation(fields: [boxId], references: [id])
+  locationId Int?
+  location   Location? @relation(fields: [locationId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // One holding per item per box, and one loose holding per item per location.
+  @@unique([itemId, boxId])
+  @@unique([itemId, locationId])
+  @@index([boxId])
+  @@index([locationId])
+}
+
+/// Append-only log of every change. Names are copied into `summary` at the time
+/// of the change, so entries still read correctly after renames or deletions.
+model HistoryEntry {
+  id             Int           @id @default(autoincrement())
+  createdAt      DateTime      @default(now())
+  userId         Int?
+  userName       String
+  action         HistoryAction
+  summary        String
+  itemId         Int?
+  boxId          Int?
+  locationId     Int?
+  fromLocationId Int?
+  toLocationId   Int?
+  companyId      Int?
+  quantity       Int?
+  quantityBefore Int?
+  quantityAfter  Int?
+  reason         String?
+  note           String?
+
+  @@index([itemId, createdAt])
+  @@index([boxId, createdAt])
+  @@index([locationId, createdAt])
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@index([createdAt])
+}
+
+/// Remembers stock-changing requests that already succeeded, so a retry after a
+/// lost connection doesn't apply the same change twice.
+model ProcessedRequest {
+  id        String   @id
+  userId    Int
+  createdAt DateTime @default(now())
+  result    Json
+}
+
+/// Small key/value store for one-off app state (e.g. "initial data seeded").
+model AppSetting {
+  key   String @id
+  value String
+}
