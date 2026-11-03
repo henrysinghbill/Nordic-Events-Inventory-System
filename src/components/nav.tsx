@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, MenuIcon, PinIcon, PlusIcon, SearchIcon } from "./icons";
+import { HomeIcon, MenuIcon, PlusIcon, ScanIcon, SearchIcon } from "./icons";
 import { cx } from "./ui";
 
 const LINKS = [
-  { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" },
-  { href: "/search", label: "Search", icon: SearchIcon, match: (p: string) => p.startsWith("/search") || p.startsWith("/items/") && p !== "/items/new" },
-  { href: "/items/new", label: "Add", icon: PlusIcon, primary: true, match: (p: string) => p === "/items/new" },
-  { href: "/locations", label: "Locations", icon: PinIcon, match: (p: string) => p.startsWith("/locations") },
+  { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" || p.startsWith("/locations") },
+  {
+    href: "/search",
+    label: "Search",
+    icon: SearchIcon,
+    match: (p: string) => p.startsWith("/search") || (p.startsWith("/items/") && p !== "/items/new"),
+  },
+  { href: "/scan", label: "Scan", icon: ScanIcon, primary: true, match: (p: string) => p.startsWith("/scan") },
+  { href: "/items/new", label: "Add item", icon: PlusIcon, match: (p: string) => p === "/items/new" },
   { href: "/menu", label: "More", icon: MenuIcon, match: (p: string) => p.startsWith("/menu") || p.startsWith("/admin") },
 ];
 
@@ -69,7 +74,7 @@ export function TopNavLinks() {
                   : "text-white/90 hover:bg-brand-700",
             )}
           >
-            {primary ? "+ Add item" : label}
+            {label}
           </Link>
         </li>
       ))}

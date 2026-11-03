@@ -55,16 +55,22 @@ src/proxy.ts                Sends signed-out visitors to the login page
 src/server/
   auth/                     Sign-in. provider.ts is the swappable login interface;
                             providers/local.ts (built-in) and providers/vms.ts (stub for Nordic VMS)
-  stock/                    ALL quantity changes (add, remove, later pack/unpack/ship/arrive)
+  stock/                    ALL quantity changes: index.ts (add/remove stock),
+                            boxes.ts (create, pack, unpack, ship, arrive, discard, link barcodes, scan lookup)
   items.ts, admin.ts        Item / company / location / user changes (each writes history)
   history.ts                Append-only history log
   idempotency.ts            Stops a retried request (weak signal) from being applied twice
   photos.ts                 Photo processing (resize, strip EXIF/GPS) and disk storage
   queries.ts                Read-only data for pages
 src/app/                    Pages and Server Actions (login, (app)/… for signed-in pages, api/)
+src/lib/barcodes.ts         What a scanned value means (box QR, DHL piece ID / waybill / routing)
+src/components/scanner.tsx  Camera scanner (QR + Code 128) with a type-it-in fallback
+src/app/print/labels/       Printable QR labels (A6 sticker or 8 per A4 sheet)
 src/components/             Shared UI (forms that never fail silently, nav, photo grid, …)
 tests/                      Automated tests (run against a real PostgreSQL)
 docker/                     Container entrypoint (migrations on start) and helpers
+scripts/                    copy-scanner-wasm.mjs: puts the scanner engine in public/vendor on install
+                            (served by the app itself; no CDN)
 ```
 
 See `.env.example` for every setting.

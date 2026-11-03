@@ -1,26 +1,35 @@
 import { notFound } from "next/navigation";
+import { BoxList } from "@/components/box-list";
 import { FilterSelect } from "@/components/filter-bar";
 import { HistoryList } from "@/components/history-list";
 import { ItemGrid } from "@/components/item-grid";
 import { Badge, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
-import { plural } from "@/lib/format";
+import { boxCode, plural } from "@/lib/format";
 import { toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
-import { activeCompanies, history, locationDetail } from "@/server/queries";
+import { activeCompanies, boxesAtLocation, history, locationDetail } from "@/server/queries";
+import { EmptyBoxes } from "./empty-boxes";
 
 export default async function LocationPage({ params, searchParams }: PageProps<"/locations/[id]">) {
   await requireUser();
   const id = toId((await params).id);
   if (!id) notFound();
   const companyId = toId((await searchParams).company);
-  const [data, companies, entries] = await Promise.all([
+  const [data, companies, allBoxes, entries] = await Promise.all([
     locationDetail(id, companyId),
     activeCompanies(),
+    boxesAtLocation(id),
     history({ OR: [{ locationId: id }, { fromLocationId: id }, { toLocationId: id }] }, 30),
   ]);
   if (!data) notFound();
   const { location, loose } = data;
   const pieces = loose.reduce((sum, h) => sum + h.quantity, 0);
+
+  const filled = allBoxes.filter((b) => b.holdings.length > 0);
+  const empty = allBoxes.filter((b) => b.holdings.length === 0);
+  const boxes = companyId
+    ? filled.filter((b) => b.holdings.some((h) => h.item.companies.some((c) => c.companyId === companyId)))
+    : filled;
 
   return (
     <>
@@ -38,9 +47,12 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
         }
         actions={
           !location.archivedAt && (
-            <LinkButton href={`/items/new?location=${location.id}`} variant="secondary">
-              + Add items here
-            </LinkButton>
+            <>
+              <LinkButton href={`/boxes/new?location=${location.id}`}>Pack a box</LinkButton>
+              <LinkButton href={`/items/new?location=${location.id}`} variant="secondary">
+                + Add items
+              </LinkButton>
+            </>
           )
         }
       />
@@ -71,6 +83,32 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
             archived: Boolean(h.item.archivedAt),
           }))}
         />
+      )}
+
+      <SectionTitle
+        actions={
+          allBoxes.length > 0 && (
+            <LinkButton href={`/print/labels?location=${location.id}`} variant="ghost">
+              Print labels
+            </LinkButton>
+          )
+        }
+      >
+        Boxes <span className="font-normal text-gray-500">· {boxes.length}</span>
+      </SectionTitle>
+      {boxes.length === 0 ? (
+        <EmptyState>{companyId ? "No boxes with this company's items here." : "No packed boxes here."}</EmptyState>
+      ) : (
+        <BoxList boxes={boxes} />
+      )}
+
+      {empty.length > 0 && (
+        <>
+          <SectionTitle>
+            Empty boxes <span className="font-normal text-gray-500">· {empty.length}</span>
+          </SectionTitle>
+          <EmptyBoxes boxes={empty.map((b) => ({ id: b.id, code: boxCode(b.id), description: b.description }))} />
+        </>
       )}
 
       <SectionTitle>History</SectionTitle>

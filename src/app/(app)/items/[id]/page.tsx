@@ -75,7 +75,10 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                       ) : h.box?.status === "IN_TRANSIT" ? (
                         <>
                           <p className="font-medium">
-                            {boxCode(h.box.id)} <Badge tone="amber">In transit</Badge>
+                            <Link href={`/boxes/${boxCode(h.box.id)}`} className="text-brand-700">
+                              {boxCode(h.box.id)}
+                            </Link>{" "}
+                            <Badge tone="amber">In transit</Badge>
                           </p>
                           <p className="text-sm text-gray-600">
                             {h.box.origin?.name} → {h.box.destination?.name}
@@ -83,7 +86,11 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                         </>
                       ) : (
                         <>
-                          <p className="font-medium">{h.box && boxCode(h.box.id)}</p>
+                          {h.box && (
+                            <Link href={`/boxes/${boxCode(h.box.id)}`} className="font-medium text-brand-700">
+                              {boxCode(h.box.id)}
+                            </Link>
+                          )}
                           <p className="text-sm text-gray-600">In a box at {h.box?.location?.name}</p>
                         </>
                       )}

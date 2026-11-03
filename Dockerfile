@@ -2,11 +2,16 @@
 # Build:  docker compose build      Run:  docker compose up -d
 
 # ---- 1. Install dependencies -------------------------------------------------
-FROM node:24-bookworm-slim AS deps
+FROM node:24-bookworm-slim AS base
+# OpenSSL is needed by Prisma's database tools.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+
+FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma
-# Also runs `prisma generate` (postinstall).
+COPY scripts ./scripts
+# Also runs `prisma generate` and copies the scanner engine (postinstall).
 RUN npm ci
 
 # ---- 2. Build the app --------------------------------------------------------
@@ -16,13 +21,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---- 3. Tools to run database migrations at start-up --------------------------
-FROM node:24-bookworm-slim AS migrate-tools
+FROM base AS migrate-tools
 WORKDIR /migrate
 COPY docker/migrate/package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 # ---- 4. Final, small runtime image -------------------------------------------
-FROM node:24-bookworm-slim AS runner
+FROM base AS runner
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \

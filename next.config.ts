@@ -5,7 +5,8 @@ const isDev = process.env.NODE_ENV !== "production";
 const contentSecurityPolicy = [
   "default-src 'self'",
   // Next.js needs inline scripts for hydration; 'unsafe-eval' only in development.
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  // 'wasm-unsafe-eval' lets the barcode scanner run its WebAssembly engine.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self'",

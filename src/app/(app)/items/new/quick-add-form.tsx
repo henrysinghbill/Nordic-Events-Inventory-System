@@ -16,15 +16,17 @@ type Suggestion = { id: number; name: string; photoKey: string | null; companyId
 
 /**
  * Quick-add on a phone: photo first, then the details.
- * "Save & add another" keeps the location and companies for the next item.
+ * "Save & add another" keeps the location, box and companies for the next item.
  */
 export function QuickAddForm({
   companies,
   locations,
+  boxes,
   defaultLocationId,
 }: {
   companies: { id: number; name: string }[];
   locations: { id: number; name: string; country: string }[];
+  boxes: { id: number; code: string; locationId: number; description: string | null }[];
   defaultLocationId?: number;
 }) {
   const router = useRouter();
@@ -43,6 +45,8 @@ export function QuickAddForm({
   const [companyIds, setCompanyIds] = useState<number[]>([]);
   const [quantity, setQuantity] = useState("1");
   const [locationId, setLocationId] = useState(String(defaultLocationId ?? locations[0]?.id ?? ""));
+  const [boxId, setBoxId] = useState("");
+  const boxesHere = boxes.filter((b) => String(b.locationId) === locationId);
   const [addPhotoToExisting, setAddPhotoToExisting] = useState(false);
 
   // Free the preview image memory when it changes.
@@ -94,6 +98,7 @@ export function QuickAddForm({
     form.set("requestId", requestId.current);
     form.set("quantity", quantity);
     form.set("locationId", locationId);
+    if (boxId) form.set("boxId", boxId);
     if (existing) {
       form.set("existingItemId", String(existing.id));
       if (addPhotoToExisting) form.set("addPhoto", "1");
@@ -248,7 +253,15 @@ export function QuickAddForm({
         <label htmlFor="locationId" className="mb-1 block font-medium">
           Location
         </label>
-        <select id="locationId" value={locationId} onChange={(e) => setLocationId(e.target.value)} className={inputClass}>
+        <select
+          id="locationId"
+          value={locationId}
+          onChange={(e) => {
+            setLocationId(e.target.value);
+            setBoxId("");
+          }}
+          className={inputClass}
+        >
           {locations.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name} ({l.country})
@@ -257,6 +270,23 @@ export function QuickAddForm({
         </select>
         {fieldErrors.locationId && <p className="mt-1 text-sm font-medium text-red-700">{fieldErrors.locationId}</p>}
       </div>
+
+      {boxesHere.length > 0 && (
+        <div>
+          <label htmlFor="boxId" className="mb-1 block font-medium">
+            Box <span className="font-normal text-gray-500">(optional)</span>
+          </label>
+          <select id="boxId" value={boxId} onChange={(e) => setBoxId(e.target.value)} className={inputClass}>
+            <option value="">Not in a box (loose)</option>
+            {boxesHere.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.code}
+                {b.description ? ` — ${b.description}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && <FormError message={error} />}
 

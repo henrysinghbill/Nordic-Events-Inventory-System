@@ -52,3 +52,6 @@ next-env.d.ts
 
 # personal editor settings
 /.vscode/
+
+# copied from node_modules on install
+/public/vendor/

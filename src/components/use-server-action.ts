@@ -58,3 +58,12 @@ export function useServerAction<Args extends unknown[], T>(
 export function newRequestId(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * A request id that stays the same across retries of one submission and is
+ * renewed after a success (for forms that build their FormData by hand).
+ */
+export function useRequestId() {
+  const ref = useRef(newRequestId());
+  return { current: () => ref.current, renew: () => void (ref.current = newRequestId()) };
+}

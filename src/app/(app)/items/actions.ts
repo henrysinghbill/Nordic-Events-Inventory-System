@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 import type { ActionResult } from "@/lib/action-result";
+import { boxCode } from "@/lib/format";
 import { safeAction } from "@/server/action";
 import { requireUser, toActor } from "@/server/auth/session";
 import { db } from "@/server/db";
@@ -63,11 +64,12 @@ export async function quickAddAction(form: FormData): Promise<ActionResult<{ ite
     const user = await requireUser();
     const actor = toActor(user);
     const common = parseInput(
-      z.object({ requestId, quantity, locationId: id.optional(), existingItemId: id.optional() }),
+      z.object({ requestId, quantity, locationId: id.optional(), boxId: id.optional(), existingItemId: id.optional() }),
       {
         requestId: form.get("requestId") ?? undefined,
         quantity: form.get("quantity"),
         locationId: form.get("locationId") || undefined,
+        boxId: form.get("boxId") || undefined,
         existingItemId: form.get("existingItemId") || undefined,
       },
     );
@@ -83,15 +85,22 @@ export async function quickAddAction(form: FormData): Promise<ActionResult<{ ite
           : await createItem(tx, actor, fields!);
         if (!item) throw new UserError("That item no longer exists.");
         if (photo) await addItemPhoto(tx, actor, item.id, photo);
+        if (common.boxId) {
+          const box = await tx.box.findUnique({ where: { id: common.boxId } });
+          if (!box || box.deletedAt || box.locationId !== locationId) {
+            throw new UserError("That box isn't at the chosen location any more. Pick the box again.");
+          }
+        }
         const holding = await addStock(tx, actor, {
           itemId: item.id,
           quantity: common.quantity,
-          place: { locationId },
+          place: common.boxId ? { boxId: common.boxId } : { locationId },
         });
         const location = await tx.location.findUniqueOrThrow({ where: { id: locationId } });
+        const where = common.boxId ? `${boxCode(common.boxId)} at ${location.name}` : location.name;
         return {
           itemId: item.id,
-          message: `Saved: ${common.quantity} × ${item.name} at ${location.name} (now ${holding.quantity} there).`,
+          message: `Saved: ${common.quantity} × ${item.name} in ${where} (now ${holding.quantity} there).`,
         };
       }),
     );

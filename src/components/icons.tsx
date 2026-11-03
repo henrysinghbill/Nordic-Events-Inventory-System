@@ -95,7 +95,13 @@ export const MinusIcon = (p: IconProps) => (
     <path d="M5 12h14" />
   </Icon>
 );
-export const UserIcon = (p: IconProps) => (
+export const ScanIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+    <path d="M7 12h10" />
+  </Icon>
+);
+export const UserIcon =(p: IconProps) => (
   <Icon {...p}>
     <circle cx="12" cy="8" r="4" />
     <path d="M4 21a8 8 0 0 1 16 0" />

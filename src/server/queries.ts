@@ -142,6 +142,86 @@ export function history(where: Prisma.HistoryEntryWhereInput, take = 50) {
   return db.historyEntry.findMany({ where, orderBy: { id: "desc" }, take });
 }
 
+// ---------------------------------------------------------------- boxes
+
+const itemForBox = {
+  include: {
+    photos: mainPhoto,
+    companies: { include: { company: { select: { name: true } } } },
+  },
+} as const;
+
+export async function boxDetail(id: number) {
+  return db.box.findUnique({
+    where: { id },
+    include: {
+      location: true,
+      origin: true,
+      destination: true,
+      holdings: { include: { item: itemForBox }, orderBy: { item: { name: "asc" } } },
+      barcodes: { orderBy: { id: "desc" } },
+      photos: { orderBy: { id: "desc" }, take: 1 },
+    },
+  });
+}
+
+/** Boxes at a location with a preview of their contents. */
+export function boxesAtLocation(locationId: number) {
+  return db.box.findMany({
+    where: { locationId, deletedAt: null },
+    include: {
+      holdings: {
+        include: { item: { include: { photos: mainPhoto, companies: { select: { companyId: true } } } } },
+        orderBy: { quantity: "desc" },
+      },
+    },
+    orderBy: { id: "desc" },
+  });
+}
+
+/** Boxes on the move, with their newest waybill for tracking. */
+export function boxesInTransit() {
+  return db.box.findMany({
+    where: { status: "IN_TRANSIT", deletedAt: null },
+    include: {
+      origin: true,
+      destination: true,
+      barcodes: { where: { type: "DHL_WAYBILL" }, orderBy: { id: "desc" }, take: 1 },
+      _count: { select: { holdings: true } },
+    },
+    orderBy: { id: "asc" },
+  });
+}
+
+/** Every box that still exists, for pickers ("link to an existing box", quick-add). */
+export function activeBoxes() {
+  return db.box.findMany({
+    where: { deletedAt: null },
+    include: { location: true, destination: true },
+    orderBy: { id: "desc" },
+  });
+}
+
+/** Boxes whose code or a linked barcode matches the search text. */
+export async function searchBoxes(q: string, locationId?: number) {
+  const text = q.trim();
+  if (!text) return [];
+  const digits = /^(?:BOX[-\s]*)?0*(\d{1,9})$/i.exec(text)?.[1];
+  const normalised = text.replace(/[\s()[\]{}]/g, "").toUpperCase().replace(/^JJD/, "JD");
+  return db.box.findMany({
+    where: {
+      deletedAt: null,
+      ...(locationId ? { locationId } : {}),
+      OR: [
+        ...(digits ? [{ id: Number(digits) }] : []),
+        ...(normalised.length >= 4 ? [{ barcodes: { some: { value: { contains: normalised } } } }] : []),
+      ],
+    },
+    include: { location: true, destination: true, _count: { select: { holdings: true } } },
+    take: 20,
+  });
+}
+
 /** Items whose names match, for "add to the existing item?" while typing. */
 export function itemNameMatches(q: string, take = 6) {
   return db.item.findMany({
