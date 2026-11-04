@@ -83,8 +83,29 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
         </Card>
       )}
 
+      {box.event && !box.event.wrappedUpAt && (
+        <p className="mb-4 rounded-xl bg-brand-50 p-3 text-brand-900 ring-1 ring-brand-200">
+          Packed for{" "}
+          <Link href={`/events/${box.event.id}`} className="font-semibold underline">
+            {box.event.name}
+          </Link>
+        </p>
+      )}
+
       {!atLocation && (
         <Card className="mb-4 space-y-3 p-4 ring-2 ring-amber-300">
+          {box.dhlDeliveredAt ? (
+            <p className="rounded-xl bg-green-50 p-3 font-medium text-green-900 ring-1 ring-green-200">
+              DHL says this was delivered on {fmtDateTime(box.dhlDeliveredAt)}. Mark it as arrived once you&apos;ve found it.
+            </p>
+          ) : (
+            box.dhlStatusText &&
+            box.dhlCheckedAt && (
+              <p className="text-sm text-gray-700">
+                DHL: {box.dhlStatusText} <span className="text-gray-500">(checked {fmtDateTime(box.dhlCheckedAt)})</span>
+              </p>
+            )
+          )}
           {waybill ? (
             <a
               href={trackingUrl(config().DHL_TRACKING_URL_TEMPLATE, waybill.value)}

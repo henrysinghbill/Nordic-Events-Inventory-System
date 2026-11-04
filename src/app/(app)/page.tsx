@@ -1,24 +1,31 @@
 import Link from "next/link";
-import { AlertIcon, BoxIcon, ChevronRightIcon, ImageIcon } from "@/components/icons";
+import { AlertIcon, BoxIcon, CalendarIcon, CheckIcon, ChevronRightIcon, ImageIcon } from "@/components/icons";
 import { Photo } from "@/components/photo";
 import { LocationCard } from "@/components/location-card";
-import { Card, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { Badge, Card, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { trackingUrl } from "@/lib/barcodes";
+import { eventPhase, formatDayRange, PHASE_LABEL, PHASE_TONE, todayIn } from "@/lib/days";
 import { boxCode, plural } from "@/lib/format";
 import { requireUser } from "@/server/auth/session";
 import { config } from "@/server/config";
-import { boxesInTransit, countMissingPhotos, locationsOverview, lowStockItems } from "@/server/queries";
+import { fmtDate, fmtDateTime } from "@/server/dates";
+import { db } from "@/server/db";
+import { lastDhlRun } from "@/server/dhl";
+import { boxesInTransit, countMissingPhotos, locationsOverview, lowStockItems, openEvents } from "@/server/queries";
 
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const user = await requireUser();
   const { denied } = await searchParams;
-  const [locations, moving, lowStock, missingPhotos] = await Promise.all([
+  const { DHL_TRACKING_URL_TEMPLATE: template, DHL_API_KEY, APP_TIMEZONE } = config();
+  const [locations, moving, lowStock, missingPhotos, events, dhlRun] = await Promise.all([
     locationsOverview(),
     boxesInTransit(),
     lowStockItems(),
     countMissingPhotos(),
+    openEvents(),
+    DHL_API_KEY ? lastDhlRun(db) : null,
   ]);
-  const template = config().DHL_TRACKING_URL_TEMPLATE;
+  const today = todayIn(APP_TIMEZONE);
 
   return (
     <>
@@ -76,6 +83,49 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
         </>
       )}
 
+      <SectionTitle
+        actions={
+          <Link href="/events" className="font-medium text-brand-700">
+            All events
+          </Link>
+        }
+      >
+        Events
+      </SectionTitle>
+      {events.length === 0 ? (
+        <Card className="mb-2 flex flex-wrap items-center justify-between gap-2 p-4 text-gray-600">
+          No upcoming events.
+          <Link href="/events/new" className="font-medium text-brand-700">
+            + New event
+          </Link>
+        </Card>
+      ) : (
+        <Card className="mb-2">
+          <ul className="divide-y divide-gray-100">
+            {events.map((e) => {
+              const phase = eventPhase(e, today);
+              return (
+                <li key={e.id}>
+                  <Link href={`/events/${e.id}`} className="flex items-center gap-3 px-4 py-3 active:bg-gray-50">
+                    <CalendarIcon className="shrink-0 text-brand-600" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{e.name}</span>
+                        <Badge tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Badge>
+                      </span>
+                      <span className="block text-sm text-gray-600">
+                        {e.venue.name} · {formatDayRange(e.startDate, e.endDate)} · {plural(e._count.boxes, "box", "boxes")}
+                      </span>
+                    </span>
+                    <ChevronRightIcon className="shrink-0 text-gray-400" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
       {moving.length > 0 && (
         <>
           <SectionTitle>
@@ -94,6 +144,11 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                         <span className="block text-sm text-gray-600">
                           {b.origin?.name} → {b.destination?.name}
                         </span>
+                        {b.dhlDeliveredAt && (
+                          <span className="flex items-center gap-1 text-sm font-medium text-green-800">
+                            <CheckIcon size={14} /> DHL says delivered {fmtDate(b.dhlDeliveredAt)}: mark as arrived
+                          </span>
+                        )}
                       </span>
                     </Link>
                     {waybill ? (
@@ -113,6 +168,13 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
               })}
             </ul>
           </Card>
+          {dhlRun && (
+            <p className={dhlRun.error ? "mb-2 text-sm text-amber-800" : "mb-2 text-sm text-gray-500"}>
+              {dhlRun.error
+                ? `Automatic DHL tracking couldn't check at ${fmtDateTime(new Date(dhlRun.at))}: ${dhlRun.error}. The tracking links still work.`
+                : `DHL tracking last checked ${fmtDateTime(new Date(dhlRun.at))}.`}
+            </p>
+          )}
         </>
       )}
 

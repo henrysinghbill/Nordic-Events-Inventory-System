@@ -28,6 +28,7 @@ export default async function MenuPage() {
       />
       <Card>
         <ul className="divide-y divide-gray-100">
+          <MenuLink href="/events">Events</MenuLink>
           <MenuLink href="/search">Search items</MenuLink>
           <MenuLink href="/items/bulk">Bulk entry (best on a computer)</MenuLink>
           <MenuLink href="/search?missingPhoto=1">Items without a photo</MenuLink>

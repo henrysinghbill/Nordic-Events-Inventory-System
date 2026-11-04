@@ -11,7 +11,15 @@ import { useRequestId, useServerAction } from "@/components/use-server-action";
 import type { ActionResult } from "@/lib/action-result";
 import { deleteBoxAction } from "../actions";
 
-export type LineRow = { itemId: number; name: string; photoKey: string | null; available: number; companies: string };
+export type LineRow = {
+  itemId: number;
+  name: string;
+  photoKey: string | null;
+  available: number;
+  companies: string;
+  /** Replaces the "N available · companies" line (e.g. "Need 50 · 20 packed · 80 here"). */
+  hint?: string;
+};
 
 /**
  * A list of items with a quantity for each — used for packing (start at 0)
@@ -33,7 +41,7 @@ function useLines(rows: LineRow[], startFull: boolean) {
   return { qty, setQty, ticked, setTicked, lines, total, tooMany };
 }
 
-function Row({
+export function Row({
   row,
   value,
   onChange,
@@ -65,7 +73,7 @@ function Row({
         <div className="min-w-0 flex-1">
           <p className="font-medium">{row.name}</p>
           <p className="text-sm text-gray-600">
-            {row.available} available{row.companies && ` · ${row.companies}`}
+            {row.hint ?? `${row.available} available${row.companies ? ` · ${row.companies}` : ""}`}
           </p>
         </div>
       </div>
@@ -239,7 +247,7 @@ export function UnpackForm({
   );
 }
 
-function StickyBar({ children }: { children: React.ReactNode }) {
+export function StickyBar({ children }: { children: React.ReactNode }) {
   return (
     <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-gray-200 bg-white/95 p-3 backdrop-blur md:bottom-0">
       <div className="mx-auto max-w-2xl space-y-2">{children}</div>

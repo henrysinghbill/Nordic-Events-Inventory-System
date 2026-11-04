@@ -24,6 +24,7 @@ const schema = z.object({
       "https://www.dhl.com/global-en/home/tracking/tracking-express.html?submit=1&tracking-id={waybill}",
     ),
   DHL_API_KEY: z.string().optional(),
+  DHL_CHECK_MINUTES: z.coerce.number().int().min(15, "DHL_CHECK_MINUTES must be at least 15").default(60),
 });
 
 export type AppConfig = z.infer<typeof schema> & { uploadDirAbsolute: string };

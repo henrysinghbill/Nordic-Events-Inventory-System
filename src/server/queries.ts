@@ -160,6 +160,7 @@ export async function boxDetail(id: number) {
       location: true,
       origin: true,
       destination: true,
+      event: { select: { id: true, name: true, venueId: true, wrappedUpAt: true } },
       holdings: { include: { item: itemForBox }, orderBy: { item: { name: "asc" } } },
       barcodes: { orderBy: { id: "desc" } },
       photos: { orderBy: { id: "desc" }, take: 1 },
@@ -259,6 +260,90 @@ export function itemNameMatches(q: string, take = 6) {
       companies: { select: { companyId: true } },
     },
     orderBy: { name: "asc" },
+    take,
+  });
+}
+
+// ---------------------------------------------------------------- events
+
+/** All events with what's needed for the list (packing progress, box count). */
+export async function eventsList() {
+  const events = await db.event.findMany({
+    include: {
+      venue: true,
+      lines: { select: { itemId: true, quantity: true } },
+      boxes: { where: { deletedAt: null }, select: { id: true, holdings: { select: { itemId: true, quantity: true } } } },
+    },
+    orderBy: [{ startDate: "asc" }, { id: "asc" }],
+  });
+  return events.map((e) => {
+    const packed = new Map<number, number>();
+    for (const b of e.boxes) for (const h of b.holdings) packed.set(h.itemId, (packed.get(h.itemId) ?? 0) + h.quantity);
+    return {
+      id: e.id,
+      name: e.name,
+      venue: e.venue,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      wrappedUpAt: e.wrappedUpAt,
+      boxCount: e.boxes.length,
+      lineCount: e.lines.length,
+      linesDone: e.lines.filter((l) => (packed.get(l.itemId) ?? 0) >= l.quantity).length,
+    };
+  });
+}
+
+export async function eventDetail(id: number) {
+  return db.event.findUnique({
+    where: { id },
+    include: {
+      venue: true,
+      lines: { include: { item: itemForBox }, orderBy: { item: { name: "asc" } } },
+      boxes: {
+        where: { deletedAt: null },
+        include: {
+          location: true,
+          origin: true,
+          destination: true,
+          holdings: { include: { item: itemForBox }, orderBy: { item: { name: "asc" } } },
+          barcodes: { where: { type: "DHL_WAYBILL" }, orderBy: { id: "desc" }, take: 1 },
+        },
+        orderBy: { id: "asc" },
+      },
+    },
+  });
+}
+
+/** Loose stock of the given items at every active location (for "Pack for this event"). */
+export async function looseStockOf(itemIds: number[]) {
+  return db.holding.findMany({
+    where: { itemId: { in: itemIds }, locationId: { not: null }, location: { archivedAt: null } },
+    select: { itemId: true, quantity: true, locationId: true },
+  });
+}
+
+/**
+ * Where each box came from on its last trip to `locationId` — the default
+ * "send it back to" choice in the event wrap-up.
+ */
+export async function lastShippedFrom(boxIds: number[], locationId: number): Promise<Map<number, number>> {
+  if (boxIds.length === 0) return new Map();
+  const rows = await db.historyEntry.findMany({
+    where: { action: "SHIPPED", boxId: { in: boxIds }, toLocationId: locationId, fromLocationId: { not: null } },
+    select: { boxId: true, fromLocationId: true },
+    orderBy: { id: "desc" },
+  });
+  const out = new Map<number, number>();
+  for (const r of rows) if (r.boxId && r.fromLocationId && !out.has(r.boxId)) out.set(r.boxId, r.fromLocationId);
+  return out;
+}
+
+/** Events that haven't been wrapped up yet, soonest first (home page). */
+export function openEvents(take = 4) {
+  return db.event.findMany({
+    where: { wrappedUpAt: null },
+    include: { venue: true, _count: { select: { boxes: { where: { deletedAt: null } } } } },
+    orderBy: [{ startDate: "asc" }, { id: "asc" }],
     take,
   });
 }

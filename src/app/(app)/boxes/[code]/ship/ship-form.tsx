@@ -18,15 +18,20 @@ export function ShipForm({
   code,
   destinations,
   hasWaybill,
+  defaultDestinationId,
 }: {
   boxId: number;
   code: string;
   destinations: { id: number; name: string; country: string }[];
   hasWaybill: boolean;
+  /** e.g. the venue of the event the box is packed for. */
+  defaultDestinationId?: number;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [destinationId, setDestinationId] = useState(String(destinations[0]?.id ?? ""));
+  const [destinationId, setDestinationId] = useState(
+    String(destinations.find((d) => d.id === defaultDestinationId)?.id ?? destinations[0]?.id ?? ""),
+  );
   const [scanned, setScanned] = useState<Scanned[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanKey, setScanKey] = useState(0);

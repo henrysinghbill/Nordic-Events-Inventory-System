@@ -66,6 +66,11 @@ enum HistoryAction {
   COMPANY_RESTORED
   COMPANY_DELETED
   USER_CHANGED
+  EVENT_CREATED
+  EVENT_EDITED
+  EVENT_DELETED
+  EVENT_WRAPPED_UP
+  DHL_DELIVERED
 }
 
 model User {
@@ -112,10 +117,11 @@ model Location {
   archivedAt DateTime?
   createdAt  DateTime     @default(now())
 
-  holdings          Holding[]
-  boxes             Box[]     @relation("BoxLocation")
-  boxesFrom         Box[]     @relation("BoxOrigin")
-  boxesTo           Box[]     @relation("BoxDestination")
+  holdings  Holding[]
+  boxes     Box[]     @relation("BoxLocation")
+  boxesFrom Box[]     @relation("BoxOrigin")
+  boxesTo   Box[]     @relation("BoxDestination")
+  events    Event[]
 }
 
 model Item {
@@ -127,10 +133,11 @@ model Item {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  companies ItemCompany[]
+  companies  ItemCompany[]
   /// The photo with the lowest position is the main photo.
-  photos    Photo[]
-  holdings  Holding[]
+  photos     Photo[]
+  holdings   Holding[]
+  eventLines EventItem[]
 
   @@index([name])
 }
@@ -177,12 +184,22 @@ model Box {
   createdAt     DateTime  @default(now())
   /// Soft delete: hidden everywhere, but kept so history still makes sense.
   deletedAt     DateTime?
+  /// The event this box is (or was last) packed for.
+  eventId       Int?
+  event         Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  /// Optional DHL tracking (only filled when DHL_API_KEY is set). Cleared on ship/arrive.
+  dhlStatus      String?
+  dhlStatusText  String?
+  dhlCheckedAt   DateTime?
+  dhlDeliveredAt DateTime?
 
   holdings Holding[]
   barcodes Barcode[]
   photos   Photo[]
 
   @@index([locationId])
+  @@index([eventId])
 }
 
 model Barcode {
@@ -238,13 +255,47 @@ model HistoryEntry {
   quantityAfter  Int?
   reason         String?
   note           String?
+  eventId        Int?
 
   @@index([itemId, createdAt])
   @@index([boxId, createdAt])
   @@index([locationId, createdAt])
   @@index([fromLocationId])
   @@index([toLocationId])
+  @@index([eventId, createdAt])
   @@index([createdAt])
+}
+
+/// An event (trade show, conference…) at a venue. Boxes are packed for it,
+/// shipped there, and sent back afterwards in the wrap-up step.
+model Event {
+  id          Int       @id @default(autoincrement())
+  name        String
+  venueId     Int
+  venue       Location  @relation(fields: [venueId], references: [id])
+  /// Calendar dates (no time of day).
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  notes       String?
+  /// Set when the post-event wrap-up has been done.
+  wrappedUpAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  lines EventItem[]
+  boxes Box[]
+
+  @@index([startDate])
+}
+
+/// One line of an event's packing list: how many of an item are needed.
+model EventItem {
+  eventId  Int
+  event    Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  itemId   Int
+  item     Item  @relation(fields: [itemId], references: [id])
+  quantity Int
+
+  @@id([eventId, itemId])
 }
 
 /// Remembers stock-changing requests that already succeeded, so a retry after a

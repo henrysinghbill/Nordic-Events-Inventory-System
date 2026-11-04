@@ -17,7 +17,12 @@ export default async function ShipPage({ params }: PageProps<"/boxes/[code]/ship
   const code = boxCode(id);
   const box = await db.box.findUnique({
     where: { id },
-    include: { location: true, barcodes: { where: { type: "DHL_WAYBILL" } }, _count: { select: { holdings: true } } },
+    include: {
+      location: true,
+      event: true,
+      barcodes: { where: { type: "DHL_WAYBILL" } },
+      _count: { select: { holdings: true } },
+    },
   });
   if (!box || box.deletedAt) notFound();
   if (box.status !== "AT_LOCATION" || !box.location) redirect(`/boxes/${code}`);
@@ -36,6 +41,7 @@ export default async function ShipPage({ params }: PageProps<"/boxes/[code]/ship
           boxId={id}
           code={code}
           hasWaybill={box.barcodes.length > 0}
+          defaultDestinationId={box.event && !box.event.wrappedUpAt ? box.event.venueId : undefined}
           destinations={destinations.map((d) => ({ id: d.id, name: d.name, country: d.country }))}
         />
       )}

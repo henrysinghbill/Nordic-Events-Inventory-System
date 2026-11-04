@@ -15,7 +15,10 @@ import { removeFromHolding } from "./index";
 
 export type Line = { itemId: number; quantity: number };
 
-async function lockBox(tx: Tx, boxId: number) {
+/** A new journey starts (or ends): forget what DHL said about the previous one. */
+const CLEAR_DHL = { dhlStatus: null, dhlStatusText: null, dhlCheckedAt: null, dhlDeliveredAt: null } as const;
+
+export async function lockBox(tx: Tx, boxId: number) {
   await tx.$queryRaw`SELECT id FROM "Box" WHERE id = ${boxId} FOR UPDATE`;
   const box = await tx.box.findUnique({
     where: { id: boxId },
@@ -34,7 +37,7 @@ async function boxAtLocation(tx: Tx, boxId: number) {
 }
 
 /** Combine duplicate items, drop zero lines, check quantities. */
-function cleanLines(lines: Line[]): Line[] {
+export function cleanLines(lines: Line[]): Line[] {
   const totals = new Map<number, number>();
   for (const { itemId, quantity } of lines) {
     if (!Number.isInteger(quantity) || quantity < 0) throw new UserError("Quantities must be whole numbers.");
@@ -44,7 +47,7 @@ function cleanLines(lines: Line[]): Line[] {
   return [...totals].map(([itemId, quantity]) => ({ itemId, quantity }));
 }
 
-async function locationForStock(tx: Tx, locationId: number) {
+export async function locationForStock(tx: Tx, locationId: number) {
   const location = await tx.location.findUnique({ where: { id: locationId } });
   if (!location) throw new UserError("That location doesn't exist.");
   if (location.archivedAt) throw new UserError(`${location.name} is archived.`);
@@ -161,7 +164,7 @@ export async function shipBox(tx: Tx, actor: Actor, input: { boxId: number; dest
   if (destination.id === box.location.id) throw new UserError(`${boxCode(box.id)} is already at ${destination.name}.`);
   await tx.box.update({
     where: { id: box.id },
-    data: { status: "IN_TRANSIT", locationId: null, originId: box.location.id, destinationId: destination.id },
+    data: { status: "IN_TRANSIT", locationId: null, originId: box.location.id, destinationId: destination.id, ...CLEAR_DHL },
   });
   await logBoxMove(
     tx,
@@ -178,7 +181,7 @@ export async function arriveBox(tx: Tx, actor: Actor, input: { boxId: number; lo
   const location = await locationForStock(tx, input.locationId);
   await tx.box.update({
     where: { id: box.id },
-    data: { status: "AT_LOCATION", locationId: location.id, originId: null, destinationId: null },
+    data: { status: "AT_LOCATION", locationId: location.id, originId: null, destinationId: null, ...CLEAR_DHL },
   });
   await logBoxMove(
     tx,
