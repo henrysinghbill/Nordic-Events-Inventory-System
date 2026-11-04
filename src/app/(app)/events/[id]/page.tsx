@@ -72,9 +72,14 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
           </span>
         }
         actions={
-          <LinkButton href={`/events/${event.id}/edit`} variant="secondary">
-            Edit
-          </LinkButton>
+          <>
+            <LinkButton href={`/print/contents?event=${event.id}`} variant="secondary">
+              Print packing list
+            </LinkButton>
+            <LinkButton href={`/events/${event.id}/edit`} variant="secondary">
+              Edit
+            </LinkButton>
+          </>
         }
       />
 

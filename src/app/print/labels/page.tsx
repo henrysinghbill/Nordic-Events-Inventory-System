@@ -3,7 +3,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { Card, cx } from "@/components/ui";
 import { boxCode } from "@/lib/format";
-import { toId } from "@/lib/params";
+import { idList, toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
 import { config } from "@/server/config";
 import { db } from "@/server/db";
@@ -12,12 +12,6 @@ import { PrintButton } from "./print-button";
 export const metadata: Metadata = { title: "Print labels" };
 
 type Layout = "single" | "a4";
-
-/** Accepts ?boxes=1,2,3 or ?boxes=1&boxes=2 */
-function idList(v: string | string[] | undefined): number[] {
-  const parts = (Array.isArray(v) ? v : [v ?? ""]).flatMap((s) => s.split(","));
-  return [...new Set(parts.map((p) => toId(p.trim())).filter((n): n is number => Boolean(n)))];
-}
 
 export default async function LabelsPage({ searchParams }: PageProps<"/print/labels">) {
   await requireUser();

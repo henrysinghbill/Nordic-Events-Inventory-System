@@ -33,7 +33,17 @@ export default async function MenuPage() {
           <MenuLink href="/items/bulk">Bulk entry (best on a computer)</MenuLink>
           <MenuLink href="/search?missingPhoto=1">Items without a photo</MenuLink>
           <MenuLink href="/locations">Locations</MenuLink>
+          <MenuLink href="/activity">Recent activity</MenuLink>
         </ul>
+      </Card>
+      <Card className="mt-3">
+        <a href="/api/export" download className="flex min-h-14 items-center justify-between px-4 font-medium active:bg-gray-50">
+          <span>
+            Download inventory (Excel)
+            <span className="block text-sm font-normal text-gray-500">Everything as it is right now: items, where they are, boxes and events</span>
+          </span>
+          <ChevronRightIcon className="shrink-0 text-gray-400" />
+        </a>
       </Card>
 
       {user.role === "ADMIN" && (

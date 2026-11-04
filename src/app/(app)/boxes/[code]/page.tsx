@@ -152,6 +152,11 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
             <LinkButton href={`/print/labels?boxes=${box.id}`} variant="secondary">
               Print label
             </LinkButton>
+            {box.holdings.length > 0 && (
+              <LinkButton href={`/print/contents?boxes=${box.id}`} variant="secondary">
+                Print contents
+              </LinkButton>
+            )}
           </div>
 
           <BoxPhoto boxId={box.id} code={code} photoKey={box.photos[0]?.key ?? null} />
