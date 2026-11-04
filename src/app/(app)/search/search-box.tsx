@@ -39,11 +39,12 @@ export function SearchBox({ placeholder }: { placeholder: string }) {
   );
 }
 
-export function ArchivedToggle() {
+/** A checkbox that switches a ?param=1 filter on and off. */
+export function ParamToggle({ param, label }: { param: string; label: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const on = params.get("archived") === "1";
+  const on = params.get(param) === "1";
   return (
     <label className="flex min-h-12 items-center gap-2 text-sm">
       <input
@@ -52,12 +53,12 @@ export function ArchivedToggle() {
         className="h-5 w-5 accent-brand-600"
         onChange={(e) => {
           const next = new URLSearchParams(params);
-          if (e.target.checked) next.set("archived", "1");
-          else next.delete("archived");
+          if (e.target.checked) next.set(param, "1");
+          else next.delete(param);
           router.replace(`${pathname}?${next.toString()}`, { scroll: false });
         }}
       />
-      Include archived items
+      {label}
     </label>
   );
 }

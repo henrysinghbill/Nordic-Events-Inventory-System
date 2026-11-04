@@ -35,9 +35,16 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
           </span>
         }
         actions={
-          <LinkButton href={`/items/${item.id}/edit`} variant="secondary">
-            Edit
-          </LinkButton>
+          <>
+            <LinkButton href={`/items/${item.id}/edit`} variant="secondary">
+              Edit
+            </LinkButton>
+            {!item.archivedAt && (
+              <LinkButton href={`/items/new?from=${item.id}`} variant="secondary">
+                Duplicate
+              </LinkButton>
+            )}
+          </>
         }
       />
 
@@ -95,7 +102,17 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                         </>
                       )}
                     </div>
-                    <span className="text-xl font-semibold">{h.quantity}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xl font-semibold">{h.quantity}</span>
+                      {(h.location || h.box?.status === "AT_LOCATION") && (
+                        <Link
+                          href={h.location ? `/locations/${h.location.id}/count?item=${item.id}` : `/boxes/${boxCode(h.box!.id)}/count?item=${item.id}`}
+                          className="rounded-lg px-2 py-2 text-sm font-medium text-brand-700 active:bg-brand-50"
+                        >
+                          Adjust
+                        </Link>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

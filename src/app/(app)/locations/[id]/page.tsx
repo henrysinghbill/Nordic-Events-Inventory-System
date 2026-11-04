@@ -67,7 +67,15 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
         />
       </div>
 
-      <SectionTitle>
+      <SectionTitle
+        actions={
+          loose.length > 0 && (
+            <LinkButton href={`/locations/${location.id}/count`} variant="ghost">
+              Count / adjust
+            </LinkButton>
+          )
+        }
+      >
         Loose items <span className="font-normal text-gray-500">· {plural(loose.length, "item")}, {plural(pieces, "piece")}</span>
       </SectionTitle>
       {loose.length === 0 ? (

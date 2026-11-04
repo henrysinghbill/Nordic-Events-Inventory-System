@@ -16,8 +16,10 @@ export async function runOnce<T extends Prisma.InputJsonValue>(
   userId: number,
   requestId: string | undefined | null,
   work: (tx: Tx) => Promise<T>,
+  /** e.g. a longer timeout for big bulk saves (default 5 s). */
+  txOptions?: { timeout?: number },
 ): Promise<{ result: T; replayed: boolean }> {
-  if (!requestId) return { result: await db.$transaction(work), replayed: false };
+  if (!requestId) return { result: await db.$transaction(work, txOptions), replayed: false };
   const id = `${userId}:${requestId}`;
 
   const previous = await db.processedRequest.findUnique({ where: { id } });
@@ -28,7 +30,7 @@ export async function runOnce<T extends Prisma.InputJsonValue>(
       const value = await work(tx);
       await tx.processedRequest.create({ data: { id, userId, result: value } });
       return value;
-    });
+    }, txOptions);
     return { result, replayed: false };
   } catch (err) {
     // The same request ran concurrently and won; its changes are kept, ours rolled back.

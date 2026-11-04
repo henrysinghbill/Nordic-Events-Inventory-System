@@ -23,11 +23,14 @@ export function QuickAddForm({
   locations,
   boxes,
   defaultLocationId,
+  duplicateOf,
 }: {
   companies: { id: number; name: string }[];
   locations: { id: number; name: string; country: string }[];
   boxes: { id: number; code: string; locationId: number; description: string | null }[];
   defaultLocationId?: number;
+  /** "Duplicate" on an item page: start from that item's name and companies. */
+  duplicateOf?: { id: number; name: string; companyIds: number[] };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -39,10 +42,11 @@ export function QuickAddForm({
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
-  const [name, setName] = useState("");
+  const [duplicate, setDuplicate] = useState(duplicateOf ?? null);
+  const [name, setName] = useState(duplicateOf?.name ?? "");
   const [existing, setExisting] = useState<Suggestion | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [companyIds, setCompanyIds] = useState<number[]>([]);
+  const [companyIds, setCompanyIds] = useState<number[]>(duplicateOf?.companyIds ?? []);
   const [quantity, setQuantity] = useState("1");
   const [locationId, setLocationId] = useState(String(defaultLocationId ?? locations[0]?.id ?? ""));
   const [boxId, setBoxId] = useState("");
@@ -54,7 +58,7 @@ export function QuickAddForm({
 
   // Search-as-you-type: suggest existing items so stock is added to them instead of creating duplicates.
   useEffect(() => {
-    if (existing || name.trim().length < 2) return;
+    if (existing || duplicate || name.trim().length < 2) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
@@ -70,8 +74,10 @@ export function QuickAddForm({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [name, existing]);
-  const visibleSuggestions = existing || name.trim().length < 2 ? [] : suggestions;
+  }, [name, existing, duplicate]);
+  // While duplicating, the original's own name would always match, so suggestions are off.
+  const visibleSuggestions = existing || duplicate || name.trim().length < 2 ? [] : suggestions;
+  const sameNameAsOriginal = duplicate && name.trim().toLowerCase() === duplicate.name.trim().toLowerCase();
 
   async function onPhotoChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -105,6 +111,7 @@ export function QuickAddForm({
     } else {
       form.set("name", name);
       companyIds.forEach((id) => form.append("companyIds", String(id)));
+      if (duplicate) form.set("duplicateOf", String(duplicate.id));
     }
     if (photo) form.set("photo", photo, "photo.jpg");
 
@@ -118,6 +125,7 @@ export function QuickAddForm({
       setPreview(null);
       setName("");
       setExisting(null);
+      setDuplicate(null);
       setQuantity("1");
       setStep("photo");
       window.scrollTo({ top: 0 });
@@ -133,9 +141,17 @@ export function QuickAddForm({
     </>
   );
 
+  const duplicateBanner = duplicate && (
+    <p className="rounded-xl bg-brand-50 p-3 text-brand-800 ring-1 ring-brand-200">
+      Duplicating <strong>{duplicate.name}</strong>: companies, description and low-stock level are copied. Take a photo and
+      change the name.
+    </p>
+  );
+
   if (step === "photo") {
     return (
       <div className="mx-auto max-w-md space-y-3">
+        {duplicateBanner}
         {photoInputs}
         <label
           htmlFor="photo-camera"
@@ -159,6 +175,7 @@ export function QuickAddForm({
 
   return (
     <div className="mx-auto max-w-md space-y-5">
+      {duplicateBanner}
       {photoInputs}
       <div className="flex items-center gap-3">
         {preview ? (
@@ -201,6 +218,9 @@ export function QuickAddForm({
           />
         )}
         {fieldErrors.name && <p className="mt-1 text-sm font-medium text-red-700">{fieldErrors.name}</p>}
+        {sameNameAsOriginal && !fieldErrors.name && (
+          <p className="mt-1 text-sm font-medium text-amber-800">Same name as the original — change it so you can tell them apart.</p>
+        )}
         {visibleSuggestions.length > 0 && (
           <div className="mt-2 rounded-xl bg-amber-50 p-2 ring-1 ring-amber-200">
             <p className="px-1 pb-1 text-sm font-medium text-amber-900">Already exists? Tap to add stock to it instead:</p>

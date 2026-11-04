@@ -8,6 +8,7 @@
  *   - checks the business rules and throws UserError with a clear message;
  *   - never lets a quantity go negative (also enforced by the database).
  */
+import { reasonLabel } from "@/lib/adjust";
 import { boxCode } from "@/lib/format";
 import type { Tx } from "../db";
 import { UserError } from "../errors";
@@ -122,4 +123,58 @@ export async function totalQuantity(tx: Tx, itemId: number): Promise<number> {
     _sum: { quantity: true },
   });
   return sum._sum.quantity ?? 0;
+}
+
+/**
+ * Count / adjust: set an item's quantity at a place to what is actually there
+ * now (e.g. after an event), with a reason. 0 removes the holding.
+ * Returns whether anything changed.
+ */
+export async function countStock(
+  tx: Tx,
+  actor: Actor,
+  input: { itemId: number; place: Place; actual: number; reason: string; note?: string | null },
+): Promise<{ changed: boolean; before: number; after: number }> {
+  if (!Number.isInteger(input.actual) || input.actual < 0) {
+    throw new UserError("Counts must be whole numbers, 0 or more.");
+  }
+  const reason = reasonLabel(input.reason);
+  if (!reason) throw new UserError("Choose a reason for the change.", { reason: "Choose a reason." });
+  const item = await tx.item.findUnique({ where: { id: input.itemId } });
+  if (!item) throw new UserError("That item doesn't exist.");
+  const place = await resolvePlace(tx, input.place);
+
+  const existing = await tx.holding.findUnique({ where: holdingWhere(item.id, input.place) });
+  if (existing) {
+    // Lock the row so a simultaneous pack/unpack waits and "before" is exact.
+    await tx.$queryRaw`SELECT id FROM "Holding" WHERE id = ${existing.id} FOR UPDATE`;
+  }
+  const current = existing ? await tx.holding.findUnique({ where: { id: existing.id } }) : null;
+  const before = current?.quantity ?? 0;
+  const after = input.actual;
+  if (before === after) return { changed: false, before, after };
+
+  if (after === 0) {
+    await tx.holding.delete({ where: { id: current!.id } });
+  } else if (current) {
+    await tx.holding.update({ where: { id: current.id }, data: { quantity: after } });
+  } else {
+    await tx.holding.create({
+      data: { itemId: item.id, quantity: after, locationId: place.boxId ? null : place.locationId, boxId: place.boxId },
+    });
+  }
+
+  await logHistory(tx, actor, {
+    action: "QUANTITY_ADJUSTED",
+    summary: `${item.name} in ${place.label} counted: ${before} → ${after} (${reason.toLowerCase()})`,
+    itemId: item.id,
+    boxId: place.boxId,
+    locationId: place.locationId,
+    quantity: after - before,
+    quantityBefore: before,
+    quantityAfter: after,
+    reason,
+    note: input.note?.trim() || null,
+  });
+  return { changed: true, before, after };
 }

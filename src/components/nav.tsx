@@ -5,16 +5,18 @@ import { usePathname } from "next/navigation";
 import { HomeIcon, MenuIcon, PlusIcon, ScanIcon, SearchIcon } from "./icons";
 import { cx } from "./ui";
 
+const ADD_PAGES = ["/items/new", "/items/bulk"];
+
 const LINKS = [
   { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" || p.startsWith("/locations") },
   {
     href: "/search",
     label: "Search",
     icon: SearchIcon,
-    match: (p: string) => p.startsWith("/search") || (p.startsWith("/items/") && p !== "/items/new"),
+    match: (p: string) => p.startsWith("/search") || (p.startsWith("/items/") && !ADD_PAGES.includes(p)),
   },
   { href: "/scan", label: "Scan", icon: ScanIcon, primary: true, match: (p: string) => p.startsWith("/scan") },
-  { href: "/items/new", label: "Add item", icon: PlusIcon, match: (p: string) => p === "/items/new" },
+  { href: "/items/new", label: "Add item", icon: PlusIcon, match: (p: string) => ADD_PAGES.includes(p) },
   { href: "/menu", label: "More", icon: MenuIcon, match: (p: string) => p.startsWith("/menu") || p.startsWith("/admin") },
 ];
 

@@ -8,7 +8,7 @@ import { boxCode, plural } from "@/lib/format";
 import { str, toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
 import { activeCompanies, activeLocations, searchBoxes, searchItems } from "@/server/queries";
-import { ArchivedToggle, SearchBox } from "./search-box";
+import { ParamToggle, SearchBox } from "./search-box";
 
 export const metadata: Metadata = { title: "Search" };
 
@@ -19,14 +19,15 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
   const companyId = toId(sp.company);
   const locationId = toId(sp.location);
   const includeArchived = sp.archived === "1";
+  const missingPhoto = sp.missingPhoto === "1";
 
   const [companies, locations, items, boxes] = await Promise.all([
     activeCompanies(),
     activeLocations(),
-    searchItems({ q, companyId, locationId, includeArchived }),
+    searchItems({ q, companyId, locationId, includeArchived, missingPhoto }),
     searchBoxes(q, locationId),
   ]);
-  const filtered = Boolean(q || companyId || locationId);
+  const filtered = Boolean(q || companyId || locationId || missingPhoto);
 
   return (
     <>
@@ -47,7 +48,10 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
             options={locations.map((l) => ({ value: String(l.id), label: l.name }))}
           />
         </div>
-        <ArchivedToggle />
+        <div className="flex flex-wrap gap-x-6">
+          <ParamToggle param="missingPhoto" label="Missing photo only" />
+          <ParamToggle param="archived" label="Include archived items" />
+        </div>
       </div>
 
       {boxes.length > 0 && (

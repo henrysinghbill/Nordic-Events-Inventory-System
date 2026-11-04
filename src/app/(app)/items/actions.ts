@@ -64,13 +64,21 @@ export async function quickAddAction(form: FormData): Promise<ActionResult<{ ite
     const user = await requireUser();
     const actor = toActor(user);
     const common = parseInput(
-      z.object({ requestId, quantity, locationId: id.optional(), boxId: id.optional(), existingItemId: id.optional() }),
+      z.object({
+        requestId,
+        quantity,
+        locationId: id.optional(),
+        boxId: id.optional(),
+        existingItemId: id.optional(),
+        duplicateOf: id.optional(),
+      }),
       {
         requestId: form.get("requestId") ?? undefined,
         quantity: form.get("quantity"),
         locationId: form.get("locationId") || undefined,
         boxId: form.get("boxId") || undefined,
         existingItemId: form.get("existingItemId") || undefined,
+        duplicateOf: form.get("duplicateOf") || undefined,
       },
     );
     if (!common.locationId) throw new UserError("Choose a location.", { locationId: "Choose a location." });
@@ -80,9 +88,18 @@ export async function quickAddAction(form: FormData): Promise<ActionResult<{ ite
 
     const result = await withOptionalPhoto(attachPhoto ? form.get("photo") : null, (photo) =>
       runOnce(db, user.id, common.requestId, async (tx) => {
+        // Duplicating: copy the original's description and low-stock level.
+        const original = common.duplicateOf ? await tx.item.findUnique({ where: { id: common.duplicateOf } }) : null;
         const item = common.existingItemId
           ? await tx.item.findUnique({ where: { id: common.existingItemId } })
-          : await createItem(tx, actor, fields!);
+          : await createItem(
+              tx,
+              actor,
+              original
+                ? { ...fields!, description: original.description, lowStockThreshold: original.lowStockThreshold }
+                : fields!,
+              { copyOf: original?.name },
+            );
         if (!item) throw new UserError("That item no longer exists.");
         if (photo) await addItemPhoto(tx, actor, item.id, photo);
         if (common.boxId) {

@@ -72,6 +72,7 @@ export async function searchItems(opts: {
   companyId?: number;
   locationId?: number;
   includeArchived?: boolean;
+  missingPhoto?: boolean;
   take?: number;
 }): Promise<ItemCard[]> {
   const atLocation: Prisma.HoldingWhereInput | undefined = opts.locationId
@@ -83,6 +84,7 @@ export async function searchItems(opts: {
       ...(opts.q ? { name: { contains: opts.q.trim(), mode: "insensitive" } } : {}),
       ...(opts.companyId ? { companies: { some: { companyId: opts.companyId } } } : {}),
       ...(atLocation ? { holdings: { some: atLocation } } : {}),
+      ...(opts.missingPhoto ? { photos: { none: {} } } : {}),
     },
     include: {
       photos: mainPhoto,
@@ -220,6 +222,30 @@ export async function searchBoxes(q: string, locationId?: number) {
     include: { location: true, destination: true, _count: { select: { holdings: true } } },
     take: 20,
   });
+}
+
+// ---------------------------------------------------------------- warnings
+
+export type LowStockItem = { id: number; name: string; threshold: number; total: number; photoKey: string | null };
+
+/** Active items whose total quantity (everywhere, incl. in transit) is below their warning level. */
+export async function lowStockItems(client = db): Promise<LowStockItem[]> {
+  const rows = await client.$queryRaw<{ id: number; name: string; threshold: number; total: bigint; photo_key: string | null }[]>`
+    SELECT i.id, i.name, i."lowStockThreshold" AS threshold,
+      COALESCE(SUM(h.quantity) FILTER (WHERE b.id IS NULL OR b."deletedAt" IS NULL), 0) AS total,
+      (SELECT p.key FROM "Photo" p WHERE p."itemId" = i.id ORDER BY p.position LIMIT 1) AS photo_key
+    FROM "Item" i
+    LEFT JOIN "Holding" h ON h."itemId" = i.id
+    LEFT JOIN "Box" b ON b.id = h."boxId"
+    WHERE i."archivedAt" IS NULL AND i."lowStockThreshold" IS NOT NULL
+    GROUP BY i.id
+    HAVING COALESCE(SUM(h.quantity) FILTER (WHERE b.id IS NULL OR b."deletedAt" IS NULL), 0) < i."lowStockThreshold"
+    ORDER BY i.name`;
+  return rows.map((r) => ({ id: r.id, name: r.name, threshold: r.threshold, total: Number(r.total), photoKey: r.photo_key }));
+}
+
+export function countMissingPhotos(client = db) {
+  return client.item.count({ where: { archivedAt: null, photos: { none: {} } } });
 }
 
 /** Items whose names match, for "add to the existing item?" while typing. */

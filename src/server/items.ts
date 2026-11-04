@@ -32,7 +32,7 @@ async function checkCompanies(tx: Tx, companyIds: number[]) {
   return ids;
 }
 
-export async function createItem(tx: Tx, actor: Actor, fields: ItemFields) {
+export async function createItem(tx: Tx, actor: Actor, fields: ItemFields, opts: { copyOf?: string } = {}) {
   const companyIds = await checkCompanies(tx, fields.companyIds);
   const item = await tx.item.create({
     data: {
@@ -44,7 +44,7 @@ export async function createItem(tx: Tx, actor: Actor, fields: ItemFields) {
   });
   await logHistory(tx, actor, {
     action: "ITEM_CREATED",
-    summary: `Item "${item.name}" created`,
+    summary: `Item "${item.name}" created${opts.copyOf ? ` (duplicate of "${opts.copyOf}")` : ""}`,
     itemId: item.id,
   });
   return item;

@@ -117,9 +117,14 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
                 <LinkButton href={`/boxes/${code}/pack`}>{box.holdings.length ? "Pack more" : "Pack items"}</LinkButton>
                 <LinkButton href={`/boxes/${code}/ship`}>Ship</LinkButton>
                 {box.holdings.length > 0 && (
-                  <LinkButton href={`/boxes/${code}/unpack`} variant="secondary">
-                    Unpack
-                  </LinkButton>
+                  <>
+                    <LinkButton href={`/boxes/${code}/unpack`} variant="secondary">
+                      Unpack
+                    </LinkButton>
+                    <LinkButton href={`/boxes/${code}/count`} variant="secondary">
+                      Count / adjust
+                    </LinkButton>
+                  </>
                 )}
               </>
             )}
