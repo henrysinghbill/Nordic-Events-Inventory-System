@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 import type { ActionResult } from "@/lib/action-result";
+import { interpretScan } from "@/lib/barcodes";
 import { boxCode } from "@/lib/format";
 import { safeAction } from "@/server/action";
 import { requireUser, toActor } from "@/server/auth/session";
@@ -134,12 +135,27 @@ export async function arriveAction(boxId: number, form: FormData): Promise<Actio
   });
 }
 
-export async function linkBarcodeAction(boxId: number, raw: string): Promise<ActionResult> {
+/**
+ * Link one or more scanned barcodes (a camera frame can hold the piece ID and
+ * the waybill). Routing barcodes and app labels in the same frame are ignored;
+ * if nothing else was scanned, the reason is reported.
+ */
+export async function linkBarcodeAction(boxId: number, raws: string | string[]): Promise<ActionResult> {
   return safeAction(async () => {
     const user = await requireUser();
-    const r = await db.$transaction((tx) => linkBarcode(tx, toActor(user), boxId, raw));
+    const all = (Array.isArray(raws) ? raws : [raws]).map(String).slice(0, 10);
+    const useful = all.filter((r) => ["dhl_piece", "dhl_waybill", "other"].includes(interpretScan(r).kind));
+    const results = await db.$transaction(async (tx) => {
+      const out = [];
+      for (const raw of useful.length ? useful : all.slice(0, 1)) out.push(await linkBarcode(tx, toActor(user), boxId, raw));
+      return out;
+    });
     refresh();
-    return { ok: true, message: r.alreadyLinked ? "That barcode was already linked to this box." : `Linked ${r.value}.` };
+    const linked = results.filter((r) => !r.alreadyLinked).map((r) => r.value);
+    return {
+      ok: true,
+      message: linked.length ? `Linked ${linked.join(" and ")}.` : "Already linked to this box.",
+    };
   });
 }
 

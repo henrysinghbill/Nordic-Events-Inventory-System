@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interpretScan, normaliseDhlPiece, parseBoxCode, trackingUrl } from "@/lib/barcodes";
+import { interpretScan, normaliseDhlPiece, parseBoxCode, rankScans, trackingUrl } from "@/lib/barcodes";
 
 describe("DHL piece ID normalisation", () => {
   it("makes the printed and the scanned form identical", () => {
@@ -72,6 +72,23 @@ describe("interpretScan", () => {
   it("returns empty for blank input and box 0", () => {
     expect(interpretScan("   ")).toEqual({ kind: "empty" });
     expect(interpretScan("BOX-0000")).toEqual({ kind: "empty" });
+  });
+});
+
+describe("rankScans (several barcodes in one camera frame)", () => {
+  it("puts the piece ID first and the routing barcode last", () => {
+    expect(rankScans(["2LDK1164+48000001", "6456556024", "JJD014600012901604680"])).toEqual([
+      "JJD014600012901604680",
+      "6456556024",
+      "2LDK1164+48000001",
+    ]);
+  });
+
+  it("puts an app box label first and drops duplicates and blanks", () => {
+    expect(rankScans(["JJD014600012901604680", "", "https://x/b/BOX-0001", "JD014600012901604680"])).toEqual([
+      "https://x/b/BOX-0001",
+      "JJD014600012901604680",
+    ]);
   });
 });
 

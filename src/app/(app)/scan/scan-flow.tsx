@@ -44,7 +44,7 @@ export function ScanFlow({ boxes, locations }: { boxes: BoxOption[]; locations: 
   return (
     <div className="mx-auto max-w-md space-y-4">
       {!outcome && (
-        <ScanOrType key={scanKey} onValue={onValue} pending={resolve.pending} autoOpen={scanKey === 0} scanLabel="Open camera" />
+        <ScanOrType key={scanKey} onValue={onValue} pending={resolve.pending} autoOpen scanLabel="Open camera" />
       )}
       {resolve.pending && <p className="text-center text-gray-600">Looking it up…</p>}
       {resolve.error && <FormError message={resolve.error} />}

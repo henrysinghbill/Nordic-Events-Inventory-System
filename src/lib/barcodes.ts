@@ -63,6 +63,35 @@ export function interpretScan(raw: string): ScanMeaning {
   return { kind: "other", value: v };
 }
 
+const RANK: Record<ScanMeaning["kind"], number> = {
+  box: 0,
+  dhl_piece: 1,
+  dhl_waybill: 2,
+  other: 3,
+  dhl_routing: 4,
+  empty: 5,
+};
+
+/**
+ * A camera frame often contains several barcodes (a DHL label has three).
+ * Order them by usefulness — box label / piece ID first, routing barcode last —
+ * and drop duplicates and blanks.
+ */
+export function rankScans(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values
+    .filter((v) => v.trim())
+    .map((v) => ({ v, m: interpretScan(v) }))
+    .filter(({ m }) => {
+      const key = JSON.stringify(m);
+      if (seen.has(key) || m.kind === "empty") return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => RANK[a.m.kind] - RANK[b.m.kind])
+    .map(({ v }) => v);
+}
+
 function boxResult(digits: string): ScanMeaning {
   const boxId = Number(digits);
   return boxId > 0 ? { kind: "box", boxId } : { kind: "empty" };

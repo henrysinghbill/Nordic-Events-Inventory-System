@@ -94,7 +94,7 @@ export function DescriptionEditor({ boxId, description }: { boxId: number; descr
 export function LinkBarcode({ boxId }: { boxId: number }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const link = useServerAction((raw: string) => linkBarcodeAction(boxId, raw));
+  const link = useServerAction((raws: string[]) => linkBarcodeAction(boxId, raws));
   if (!open) {
     return (
       <Button variant="secondary" className="w-full" onClick={() => setOpen(true)}>
@@ -104,15 +104,15 @@ export function LinkBarcode({ boxId }: { boxId: number }) {
   }
   return (
     <Card className="space-y-3 p-4">
-      <p className="font-medium">Scan the DHL barcode starting JD, or the waybill.</p>
+      <p className="font-medium">Scan the DHL label: the piece ID (starting JD) and/or the waybill.</p>
       <ScanOrType
         autoOpen
         scanLabel="Scan DHL label"
         placeholder="JD… or waybill number"
-        hint="Scan the bottom DHL barcode (starting JD) or the waybill"
+        hint="Fit the whole DHL label in view, or aim at the barcode starting JD"
         pending={link.pending}
-        onValue={async (raw) => {
-          const r = await link.run(raw);
+        onValue={async (_best, all) => {
+          const r = await link.run(all);
           if (r?.ok) {
             toast("success", r.message ?? "Linked.");
             setOpen(false);

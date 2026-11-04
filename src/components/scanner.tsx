@@ -2,6 +2,7 @@
 
 import { BarcodeDetector, prepareZXingModule } from "barcode-detector/ponyfill";
 import { useEffect, useRef, useState } from "react";
+import { rankScans } from "@/lib/barcodes";
 import { CloseIcon } from "./icons";
 import { Button, cx, inputClass } from "./ui";
 
@@ -31,14 +32,15 @@ function cameraErrorMessage(err: unknown): string {
 
 /**
  * Full-screen camera view that reads QR codes and Code 128 barcodes.
- * Calls onDetected once with the raw value, then stops the camera.
+ * Calls onDetected once with every barcode in the frame (best first, see
+ * rankScans), then stops the camera.
  */
 export function CameraScanner({
   onDetected,
   onClose,
-  hint = "Point the camera at a box label or the DHL barcode starting JD",
+  hint = "Point the camera at a box label or the DHL barcode starting JD. Move closer if it doesn't read.",
 }: {
-  onDetected: (value: string) => void;
+  onDetected: (values: string[]) => void;
   onClose: () => void;
   hint?: string;
 }) {
@@ -74,6 +76,14 @@ export function CameraScanner({
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
+      // Ask for continuous autofocus where supported (some Android phones otherwise stay blurry up close).
+      const track = stream.getVideoTracks()[0];
+      const caps = track?.getCapabilities?.() as { focusMode?: string[] } | undefined;
+      if (caps?.focusMode?.includes("continuous")) {
+        track
+          .applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] })
+          .catch(() => {});
+      }
       video.srcObject = stream;
       try {
         await video.play();
@@ -87,12 +97,12 @@ export function CameraScanner({
         try {
           if (video.readyState >= 2) {
             const codes = await getDetector().detect(video);
-            const value = codes.find((c) => c.rawValue)?.rawValue;
-            if (value && !stopped) {
+            const values = rankScans(codes.map((c) => c.rawValue));
+            if (values.length && !stopped) {
               stopped = true;
               navigator.vibrate?.(80);
               stream?.getTracks().forEach((t) => t.stop());
-              detectedRef.current(value);
+              detectedRef.current(values);
               return;
             }
           }
@@ -146,7 +156,8 @@ export function CameraScanner({
 
 /**
  * "Scan" button plus a text field for typing the code when a label can't be read.
- * Calls onValue with whatever was scanned or typed.
+ * Calls onValue with the best value scanned or typed, plus every barcode
+ * that was in the camera frame (best first).
  */
 export function ScanOrType({
   onValue,
@@ -156,7 +167,7 @@ export function ScanOrType({
   placeholder = "BOX-0047, JD… piece ID or waybill",
   hint,
 }: {
-  onValue: (value: string) => void;
+  onValue: (best: string, all: string[]) => void;
   pending?: boolean;
   autoOpen?: boolean;
   scanLabel?: string;
@@ -174,7 +185,7 @@ export function ScanOrType({
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (typed.trim()) onValue(typed.trim());
+          if (typed.trim()) onValue(typed.trim(), [typed.trim()]);
         }}
       >
         <input
@@ -195,9 +206,9 @@ export function ScanOrType({
         <CameraScanner
           hint={hint}
           onClose={() => setOpen(false)}
-          onDetected={(value) => {
+          onDetected={(values) => {
             setOpen(false);
-            onValue(value);
+            onValue(values[0], values);
           }}
         />
       )}

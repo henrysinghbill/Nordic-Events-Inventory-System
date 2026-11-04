@@ -36,16 +36,24 @@ export function ShipForm({
   const havePiece = scanned.some((s) => s.label === "DHL piece ID");
   const haveWaybill = scanned.some((s) => s.label === "DHL waybill");
 
-  function onScan(raw: string) {
+/** Keep every useful barcode from one scan (a whole DHL label gives piece ID and waybill at once). */
+  function onScan(_best: string, all: string[]) {
     setScanKey((k) => k + 1); // clears the text field
-    const m = interpretScan(raw);
-    if (m.kind === "dhl_routing") return setScanError(ROUTING_MESSAGE);
-    if (m.kind === "box") return setScanError("That's an app box label, not the DHL label.");
-    if (m.kind === "empty") return;
-    if (scanned.some((s) => s.value === m.value)) return setScanError("Already scanned.");
-    setScanError(null);
-    const label = m.kind === "dhl_piece" ? "DHL piece ID" : m.kind === "dhl_waybill" ? "DHL waybill" : "Other barcode";
-    setScanned((s) => [...s, { raw, label, value: m.value }]);
+    const added: Scanned[] = [];
+    let problem: string | null = null;
+    for (const raw of all) {
+      const m = interpretScan(raw);
+      if (m.kind === "dhl_routing") problem ??= ROUTING_MESSAGE;
+      else if (m.kind === "box") problem ??= "That's an app box label, not the DHL label.";
+      else if (m.kind === "empty") continue;
+      else if (scanned.some((s) => s.value === m.value) || added.some((s) => s.value === m.value)) problem ??= "Already scanned.";
+      else {
+        const label = m.kind === "dhl_piece" ? "DHL piece ID" : m.kind === "dhl_waybill" ? "DHL waybill" : "Other barcode";
+        added.push({ raw, label, value: m.value });
+      }
+    }
+    setScanError(added.length ? null : problem);
+    if (added.length) setScanned((s) => [...s, ...added]);
   }
 
   async function ship() {
@@ -77,7 +85,9 @@ export function ShipForm({
       <Card className="space-y-3 p-4">
         <div>
           <p className="font-medium">DHL label (optional, can be done later)</p>
-          <p className="text-sm text-gray-600">Scan the bottom barcode starting JD, then the waybill barcode.</p>
+          <p className="text-sm text-gray-600">
+            Fit the whole DHL label in the camera to read the piece ID (JD…) and waybill together, or scan them one at a time.
+          </p>
         </div>
         {scanned.length > 0 && (
           <ul className="space-y-1">
@@ -105,7 +115,7 @@ export function ShipForm({
           onValue={onScan}
           scanLabel={havePiece ? (haveWaybill || hasWaybill ? "Scan another barcode" : "Scan the waybill") : "Scan DHL label"}
           placeholder="JD… or waybill number"
-          hint={havePiece ? "Now scan the waybill barcode" : "Scan the bottom DHL barcode (starting JD)"}
+          hint={havePiece ? "Now scan the waybill barcode" : "Fit the whole DHL label in view, or aim at the barcode starting JD"}
         />
         {scanError && <FormError message={scanError} />}
       </Card>
