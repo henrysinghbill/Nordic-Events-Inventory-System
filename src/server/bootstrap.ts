@@ -16,10 +16,9 @@ const SEED_COMPANIES = [
  * Runs once when the server starts (see src/instrumentation.ts).
  *  - Seeds the starting companies and the Copenhagen storeroom, only ever once
  *    (so deleting them later doesn't make them come back).
- *  - Creates the initial admin if there are no users yet.
+ *  - Creates the initial admin if that user doesn't exist yet (see ensureInitialAdmin).
  */
 export async function bootstrap() {
-  const cfg = config();
   await pruneProcessedRequests(db);
 
   const seeded = await db.appSetting.findUnique({ where: { key: "initial_data_seeded" } });
@@ -38,26 +37,41 @@ export async function bootstrap() {
     console.log("[bootstrap] Seeded companies and the Copenhagen storeroom.");
   }
 
-  const userCount = await db.user.count();
+  await ensureInitialAdmin();
+}
+
+/**
+ * Make sure the initial administrator exists: if no user with the name
+ * INITIAL_ADMIN_USERNAME exists yet, create it as an administrator.
+ *
+ * This runs on every start, so it also works when switching an existing
+ * database to VMS logins: set INITIAL_ADMIN_USERNAME to your VMS username and
+ * restart. An existing user is never changed (so an admin who was later made a
+ * member, or deactivated, stays that way).
+ */
+export async function ensureInitialAdmin(client = db) {
+  const cfg = config();
   const username = cfg.INITIAL_ADMIN_USERNAME?.trim().toLowerCase();
-  if (userCount === 0) {
-    if (!username) {
+  if (!username) {
+    if ((await client.user.count()) === 0) {
       console.warn("[bootstrap] No users exist and INITIAL_ADMIN_USERNAME is not set. Nobody can sign in as admin.");
-      return;
     }
-    const needsPassword = cfg.AUTH_PROVIDER === "local";
-    if (needsPassword && !cfg.INITIAL_ADMIN_PASSWORD) {
-      console.warn("[bootstrap] INITIAL_ADMIN_PASSWORD is not set, so the initial admin can't sign in with the local provider.");
-    }
-    await db.user.create({
-      data: {
-        username,
-        displayName: username,
-        role: "ADMIN",
-        passwordHash:
-          needsPassword && cfg.INITIAL_ADMIN_PASSWORD ? await hashPassword(cfg.INITIAL_ADMIN_PASSWORD) : null,
-      },
-    });
-    console.log(`[bootstrap] Created initial admin "${username}".`);
+    return null;
   }
+  if (await client.user.findUnique({ where: { username } })) return null;
+
+  const needsPassword = cfg.AUTH_PROVIDER === "local";
+  if (needsPassword && !cfg.INITIAL_ADMIN_PASSWORD) {
+    console.warn("[bootstrap] INITIAL_ADMIN_PASSWORD is not set, so the initial admin can't sign in with the local provider.");
+  }
+  const user = await client.user.create({
+    data: {
+      username,
+      displayName: username,
+      role: "ADMIN",
+      passwordHash: needsPassword && cfg.INITIAL_ADMIN_PASSWORD ? await hashPassword(cfg.INITIAL_ADMIN_PASSWORD) : null,
+    },
+  });
+  console.log(`[bootstrap] Created initial admin "${username}".`);
+  return user;
 }

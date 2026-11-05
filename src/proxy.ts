@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * validated against the database by requireUser() in every page, action and
  * API route — this proxy only checks that a cookie exists.
  */
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/api/health"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

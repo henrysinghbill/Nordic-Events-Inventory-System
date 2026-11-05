@@ -2,6 +2,11 @@
 
 Web app for tracking Nordic Group's event equipment and materials: what we have, where it is, and what is in which box. Mobile-first, self-contained (Next.js + PostgreSQL, packaged with Docker).
 
+| Document | For |
+|---|---|
+| [USER_GUIDE.md](USER_GUIDE.md) | The team: adding items, packing, shipping, scanning, events |
+| [DEPLOY.md](DEPLOY.md) | Running it on a server: setup, HTTPS, updates, backups, connecting VMS logins, Railway |
+
 ## Run it (Docker, one command)
 
 Requires Docker.
@@ -55,8 +60,12 @@ src/proxy.ts                Sends signed-out visitors to the login page
 src/server/
   auth/                     Sign-in. provider.ts is the swappable login interface;
                             providers/local.ts (built-in) and providers/vms.ts (stub for Nordic VMS)
-  stock/                    ALL quantity changes: index.ts (add/remove stock),
+  stock/                    ALL quantity changes: index.ts (add/remove/count stock),
                             boxes.ts (create, pack, unpack, ship, arrive, discard, link barcodes, scan lookup)
+  events.ts                 Events: packing list, pack for event, ship/arrive all, wrap-up
+  dhl.ts                    Optional DHL tracking checks (only with DHL_API_KEY)
+  export.ts, xlsx.ts        "Download inventory (Excel)"
+  bootstrap.ts              First start: starting companies, Copenhagen storeroom, initial admin
   items.ts, admin.ts        Item / company / location / user changes (each writes history)
   history.ts                Append-only history log
   idempotency.ts            Stops a retried request (weak signal) from being applied twice
@@ -66,10 +75,13 @@ src/app/                    Pages and Server Actions (login, (app)/… for signe
 src/lib/barcodes.ts         What a scanned value means (box QR, DHL piece ID / waybill / routing)
 src/components/scanner.tsx  Camera scanner (QR + Code 128) with a type-it-in fallback
 src/app/print/labels/       Printable QR labels (A6 sticker or 8 per A4 sheet)
+src/app/print/contents/     Printable contents sheets (per box, or an event's packing list)
+src/app/api/health/         Health check for monitoring (no login needed)
 src/components/             Shared UI (forms that never fail silently, nav, photo grid, …)
 tests/                      Automated tests (run against a real PostgreSQL)
-docker/                     Container entrypoint (migrations on start) and helpers
-scripts/                    copy-scanner-wasm.mjs: puts the scanner engine in public/vendor on install
+docker/                     Container entrypoint (migrations on start), certs/ for HTTPS-inspecting networks
+scripts/                    backup.sh / restore.sh: database + photos (see DEPLOY.md)
+                            copy-scanner-wasm.mjs: puts the scanner engine in public/vendor on install
                             (served by the app itself; no CDN)
 ```
 

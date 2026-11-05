@@ -55,3 +55,6 @@ next-env.d.ts
 
 # copied from node_modules on install
 /public/vendor/
+
+# Network-specific certificates for the Docker build (see docker/certs/README.md)
+/docker/certs/*.crt
