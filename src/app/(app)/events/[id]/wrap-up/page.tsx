@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
+import { withBack } from "@/lib/back";
 import { boxCode } from "@/lib/format";
 import { toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
@@ -45,7 +46,7 @@ export default async function WrapUpPage({ params }: PageProps<"/events/[id]/wra
           {elsewhere.map((b, i) => (
             <span key={b.id}>
               {i > 0 && ", "}
-              <Link href={`/boxes/${boxCode(b.id)}`} className="font-medium text-brand-700">
+              <Link href={withBack(`/boxes/${boxCode(b.id)}`, `/events/${event.id}`)} className="font-medium text-brand-700">
                 {boxCode(b.id)}
               </Link>{" "}
               ({b.status === "IN_TRANSIT" ? `in transit to ${b.destination?.name}` : `at ${b.location?.name}`})

@@ -1,7 +1,7 @@
 /**
  * "Download inventory (Excel)": everything in one workbook, as of now.
  *   Where things are — one row per item per place (loose or in a box)
- *   Items            — one row per item, with totals
+ *   Items            — one row per item, with its type and totals
  *   Boxes            — one row per box, with a contents summary
  *   Events           — one row per event
  */
@@ -16,6 +16,7 @@ export async function inventoryWorkbook(db: Db, timeZone: string): Promise<Buffe
   const [items, holdings, boxes, events] = await Promise.all([
     db.item.findMany({
       include: {
+        type: true,
         companies: { include: { company: true } },
         _count: { select: { photos: true } },
         holdings: { where: { OR: [{ boxId: null }, { box: { deletedAt: null } }] }, select: { quantity: true } },
@@ -25,7 +26,7 @@ export async function inventoryWorkbook(db: Db, timeZone: string): Promise<Buffe
     db.holding.findMany({
       where: { OR: [{ boxId: null }, { box: { deletedAt: null } }] },
       include: {
-        item: { include: { companies: { include: { company: true } } } },
+        item: { include: { type: true, companies: { include: { company: true } } } },
         location: true,
         box: { include: { location: true, origin: true, destination: true, event: true } },
       },
@@ -58,11 +59,12 @@ export async function inventoryWorkbook(db: Db, timeZone: string): Promise<Buffe
 
   const where: Sheet = {
     name: "Where things are",
-    header: ["Item", "Companies", "Quantity", "Location", "Box", "Box status", "Event"],
-    widths: [36, 30, 10, 34, 11, 13, 28],
+    header: ["Item", "Type", "Companies", "Quantity", "Location", "Box", "Box status", "Event"],
+    widths: [36, 16, 30, 10, 34, 11, 13, 28],
     rows: holdings
       .map((h) => [
         h.item.name,
+        h.item.type?.name ?? "",
         companies(h.item),
         h.quantity,
         h.location ? h.location.name : h.box ? route(h.box) : "",
@@ -70,17 +72,19 @@ export async function inventoryWorkbook(db: Db, timeZone: string): Promise<Buffe
         h.box ? (h.box.status === "IN_TRANSIT" ? "In transit" : "At location") : "",
         h.box?.event?.name ?? "",
       ])
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[3]).localeCompare(String(b[3]))),
+      // By item, then by location.
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[4]).localeCompare(String(b[4]))),
   };
 
   const itemSheet: Sheet = {
     name: "Items",
-    header: ["Item", "Companies", "Total quantity", "Low-stock level", "Low stock", "Description", "Has photo", "Archived", "Item ID"],
-    widths: [36, 30, 14, 15, 10, 40, 10, 10, 9],
+    header: ["Item", "Type", "Companies", "Total quantity", "Low-stock level", "Low stock", "Description", "Has photo", "Archived", "Item ID"],
+    widths: [36, 16, 30, 14, 15, 10, 40, 10, 10, 9],
     rows: items.map((i) => {
       const total = i.holdings.reduce((s, h) => s + h.quantity, 0);
       return [
         i.name,
+        i.type?.name ?? "",
         companies(i),
         total,
         i.lowStockThreshold,

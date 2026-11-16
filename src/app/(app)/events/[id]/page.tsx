@@ -5,6 +5,7 @@ import { HistoryList } from "@/components/history-list";
 import { AlertIcon, BoxIcon, CheckIcon } from "@/components/icons";
 import { Photo } from "@/components/photo";
 import { Badge, Card, cx, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { withBack } from "@/lib/back";
 import { trackingUrl } from "@/lib/barcodes";
 import { eventPhase, formatDayRange, PHASE_LABEL, PHASE_TONE, todayIn } from "@/lib/days";
 import { boxCode, plural } from "@/lib/format";
@@ -32,6 +33,8 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
   const phase = eventPhase(event, todayIn(APP_TIMEZONE));
   const open = phase !== "wrapped";
   const venue = event.venue;
+  /** Items and boxes opened from here link back to this event. */
+  const here = `/events/${event.id}`;
 
   // Packing progress: what's packed in the event's boxes vs. the list.
   const packed = new Map<number, number>();
@@ -157,7 +160,7 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
                   const done = have >= l.quantity;
                   return (
                     <li key={l.itemId}>
-                      <Link href={`/items/${l.itemId}`} className="flex items-center gap-3 px-4 py-2 active:bg-gray-50">
+                      <Link href={withBack(`/items/${l.itemId}`, here)} className="flex items-center gap-3 px-4 py-2 active:bg-gray-50">
                         <Photo photoKey={l.item.photos[0]?.key} alt="" className="h-12 w-12 shrink-0 rounded-lg" />
                         <span className="min-w-0 flex-1 font-medium">{l.item.name}</span>
                         {!open ? (
@@ -199,7 +202,7 @@ export default async function EventPage({ params }: PageProps<"/events/[id]">) {
                   const waybill = b.barcodes[0]?.value;
                   return (
                     <li key={b.id} className="flex items-start gap-1 px-4 py-3">
-                      <Link href={`/boxes/${boxCode(b.id)}`} className="flex min-w-0 flex-1 gap-3">
+                      <Link href={withBack(`/boxes/${boxCode(b.id)}`, here)} className="flex min-w-0 flex-1 gap-3">
                         <BoxIcon className={cx("mt-0.5 shrink-0", b.status === "IN_TRANSIT" ? "text-amber-600" : "text-brand-600")} />
                         <span className="min-w-0">
                           <span className="block font-semibold">

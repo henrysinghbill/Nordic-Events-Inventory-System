@@ -67,12 +67,17 @@ src/server/
   export.ts, xlsx.ts        "Download inventory (Excel)"
   bootstrap.ts              First start: starting companies, Copenhagen storeroom, initial admin
   items.ts, admin.ts        Item / company / location / user changes (each writes history)
+  types.ts                  Item types (Banner, Leaflet…): add, rename, delete
   history.ts                Append-only history log
   idempotency.ts            Stops a retried request (weak signal) from being applied twice
   photos.ts                 Photo processing (resize, strip EXIF/GPS) and disk storage
-  queries.ts                Read-only data for pages
+  queries.ts                Read-only data for pages, including the item and box searches
+  back.ts                   "← Back" links that return to where an item or box was opened from
 src/app/                    Pages and Server Actions (login, (app)/… for signed-in pages, api/)
+                            (app)/page.tsx Home · items/ · boxes/ · search/ ("Find anything") · events/ …
 src/lib/barcodes.ts         What a scanned value means (box QR, DHL piece ID / waybill / routing)
+src/lib/search-text.ts      How typed text is matched (words in any order, plurals)
+src/lib/type-suggest.ts     Suggests an item's type from its name
 src/components/scanner.tsx  Camera scanner (QR + Code 128) with a type-it-in fallback
 src/app/print/labels/       Printable QR labels (A6 sticker or 8 per A4 sheet)
 src/app/print/contents/     Printable contents sheets (per box, or an event's packing list)

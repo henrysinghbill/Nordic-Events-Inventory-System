@@ -3,13 +3,16 @@
 import { useState } from "react";
 import { ActionButton } from "@/components/action-button";
 import { ActionForm, SubmitButton, TextInput } from "@/components/action-form";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, cx } from "@/components/ui";
 import { createCompanyAction, removeCompanyAction, renameCompanyAction, restoreCompanyAction } from "../actions";
+
+/** A one-line form: input and buttons side by side, with any error message on its own line below. */
+const ROW = "flex flex-wrap items-start gap-2 space-y-0 [&>[role=alert]]:basis-full";
 
 export function AddCompanyForm() {
   return (
-    <ActionForm action={createCompanyAction} resetOnSuccess className="flex items-start gap-2 space-y-0">
-      <div className="flex-1">
+    <ActionForm action={createCompanyAction} resetOnSuccess className={ROW}>
+      <div className="min-w-0 flex-1">
         <TextInput name="name" placeholder="New company name" aria-label="New company name" />
       </div>
       <SubmitButton pendingText="Adding…">Add</SubmitButton>
@@ -28,9 +31,9 @@ export function CompanyRow({
       <ActionForm
         action={renameCompanyAction.bind(null, company.id)}
         onSuccess={() => setEditing(false)}
-        className="flex items-start gap-2 space-y-0 px-4 py-3"
+        className={cx(ROW, "px-4 py-3")}
       >
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <TextInput name="name" defaultValue={company.name} autoFocus aria-label="Company name" />
         </div>
         <SubmitButton>Save</SubmitButton>

@@ -3,11 +3,11 @@
 import { refresh } from "next/cache";
 import { z } from "zod";
 import type { ActionResult } from "@/lib/action-result";
-import { boxCode } from "@/lib/format";
+import { boxCode, plural } from "@/lib/format";
 import { safeAction } from "@/server/action";
 import { requireUser, toActor } from "@/server/auth/session";
 import { db } from "@/server/db";
-import { parseInput, UserError } from "@/server/errors";
+import { isUniqueViolation, parseInput, UserError } from "@/server/errors";
 import { runOnce } from "@/server/idempotency";
 import {
   addItemPhoto,
@@ -15,11 +15,13 @@ import {
   itemFieldsSchema,
   removeItemPhoto,
   setItemArchived,
+  setItemsType,
   setMainPhoto,
   updateItem,
 } from "@/server/items";
 import { deletePhotoFiles, readUpload, storePhoto } from "@/server/photos";
 import { addStock } from "@/server/stock";
+import { findOrCreateType, typeNameSchema } from "@/server/types";
 
 const id = z.coerce.number().int().positive();
 const quantity = z.coerce
@@ -35,6 +37,7 @@ function itemFieldsFrom(form: FormData) {
     description: form.get("description"),
     companyIds: form.getAll("companyIds"),
     lowStockThreshold: form.get("lowStockThreshold"),
+    typeId: form.get("typeId"),
   };
 }
 
@@ -88,7 +91,7 @@ export async function quickAddAction(form: FormData): Promise<ActionResult<{ ite
 
     const result = await withOptionalPhoto(attachPhoto ? form.get("photo") : null, (photo) =>
       runOnce(db, user.id, common.requestId, async (tx) => {
-        // Duplicating: copy the original's description and low-stock level.
+        // Duplicating: copy the original's description and low-stock level (name, companies and type come from the form).
         const original = common.duplicateOf ? await tx.item.findUnique({ where: { id: common.duplicateOf } }) : null;
         const item = common.existingItemId
           ? await tx.item.findUnique({ where: { id: common.existingItemId } })
@@ -131,6 +134,56 @@ export async function updateItemAction(itemId: number, form: FormData): Promise<
     const fields = parseInput(itemFieldsSchema, itemFieldsFrom(form));
     await db.$transaction((tx) => updateItem(tx, toActor(user), itemId, fields));
     return { ok: true, message: "Item saved." };
+  });
+}
+
+/**
+ * Add an item type from a type picker (any signed-in user). If a type with
+ * that name already exists, whatever the capitals, that one is returned.
+ */
+export async function createTypeAction(
+  rawName: string,
+): Promise<ActionResult<{ id: number; name: string; created: boolean }>> {
+  return safeAction(async () => {
+    const user = await requireUser();
+    const { name } = parseInput(z.object({ name: typeNameSchema }), { name: rawName });
+    const run = () => db.$transaction((tx) => findOrCreateType(tx, toActor(user), name));
+    const result = await run().catch((err) => {
+      // Someone added the same name at the same moment: theirs exists now, so use it.
+      if (isUniqueViolation(err)) return run();
+      throw err;
+    });
+    refresh();
+    return {
+      ok: true,
+      data: { id: result.type.id, name: result.type.name, created: result.created },
+      message: result.created ? `Type "${result.type.name}" added.` : `"${result.type.name}" already exists, so that one is used.`,
+    };
+  });
+}
+
+/** Give the ticked items a type (the "Items without a type" page). */
+export async function setItemsTypeAction(form: FormData): Promise<ActionResult<{ changed: number }>> {
+  return safeAction(async () => {
+    const user = await requireUser();
+    const input = parseInput(
+      z.object({
+        typeId: z.coerce.number({ message: "Choose a type first." }).int().positive("Choose a type first."),
+        itemIds: z.array(id).min(1, "Tick at least one item.").max(1000),
+      }),
+      { typeId: form.get("typeId") || undefined, itemIds: form.getAll("itemIds") },
+    );
+    const result = await db.$transaction((tx) => setItemsType(tx, toActor(user), input.itemIds, input.typeId), {
+      timeout: 30_000,
+    });
+    refresh();
+    return {
+      ok: true,
+      data: { changed: result.changed },
+      message: result.changed
+        ? `${plural(result.changed, "item")} set as ${result.typeName}.`
+        : "Those items already had that type.",
+    };
   });
 }
 

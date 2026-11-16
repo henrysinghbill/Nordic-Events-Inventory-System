@@ -2,18 +2,32 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { HistoryList } from "@/components/history-list";
 import { Badge, Card, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { safeBackPath, withBack } from "@/lib/back";
 import { boxCode } from "@/lib/format";
 import { toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
+import { backLink } from "@/server/back";
+import { db } from "@/server/db";
 import { activeLocations, history, itemDetail } from "@/server/queries";
 import { AddStockForm, ArchiveButton, ItemPhotos } from "./item-client";
 
-export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
+export default async function ItemPage({ params, searchParams }: PageProps<"/items/[id]">) {
   await requireUser();
   const id = toId((await params).id);
   if (!id) notFound();
-  const [item, locations, entries] = await Promise.all([itemDetail(id), activeLocations(), history({ itemId: id }, 50)]);
+  const cameFrom = safeBackPath((await searchParams).back);
+  const [item, locations, entries, back, typesExist] = await Promise.all([
+    itemDetail(id),
+    activeLocations(),
+    history({ itemId: id }, 50),
+    // Back to wherever this item was opened from (a box, a location, the Items list with its filters…).
+    backLink(cameFrom, { href: "/items", label: "Items" }),
+    db.itemType.count().then((n) => n > 0),
+  ]);
   if (!item) notFound();
+  /** This page's own address, so the pages it links to can come back here. */
+  const here = withBack(`/items/${item.id}`, cameFrom);
+  const editHref = withBack(`/items/${item.id}/edit`, cameFrom);
 
   const holdings = item.holdings.filter((h) => !h.box?.deletedAt);
   const total = holdings.reduce((sum, h) => sum + h.quantity, 0);
@@ -22,21 +36,36 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
   return (
     <>
       <PageHeader
-        back={{ href: "/search", label: "Search" }}
+        back={back}
         title={item.name}
         subtitle={
-          <span className="flex flex-wrap gap-1.5 pt-1">
+          <span className="flex flex-wrap items-center gap-1.5 pt-1">
+            {/* The type links to every item of that type. */}
+            {item.type && (
+              <Link
+                href={`/items?type=${item.type.id}`}
+                title={`Show all items of the type ${item.type.name}`}
+                className="inline-flex items-center rounded-full bg-gray-800 px-2.5 py-0.5 text-xs font-medium text-white"
+              >
+                {item.type.name}
+              </Link>
+            )}
             {item.companies.map((c) => (
               <Badge key={c.companyId} tone="brand">
                 {c.company.name}
               </Badge>
             ))}
             {item.archivedAt && <Badge>Archived</Badge>}
+            {!item.type && typesExist && !item.archivedAt && (
+              <Link href={editHref} className="text-sm font-medium text-brand-700">
+                + Add type
+              </Link>
+            )}
           </span>
         }
         actions={
           <>
-            <LinkButton href={`/items/${item.id}/edit`} variant="secondary">
+            <LinkButton href={editHref} variant="secondary">
               Edit
             </LinkButton>
             {!item.archivedAt && (
@@ -82,7 +111,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                       ) : h.box?.status === "IN_TRANSIT" ? (
                         <>
                           <p className="font-medium">
-                            <Link href={`/boxes/${boxCode(h.box.id)}`} className="text-brand-700">
+                            <Link href={withBack(`/boxes/${boxCode(h.box.id)}`, here)} className="text-brand-700">
                               {boxCode(h.box.id)}
                             </Link>{" "}
                             <Badge tone="amber">In transit</Badge>
@@ -94,7 +123,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                       ) : (
                         <>
                           {h.box && (
-                            <Link href={`/boxes/${boxCode(h.box.id)}`} className="font-medium text-brand-700">
+                            <Link href={withBack(`/boxes/${boxCode(h.box.id)}`, here)} className="font-medium text-brand-700">
                               {boxCode(h.box.id)}
                             </Link>
                           )}

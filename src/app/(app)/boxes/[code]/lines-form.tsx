@@ -6,9 +6,11 @@ import { FormError } from "@/components/action-form";
 import { QuantityInput } from "@/components/form-controls";
 import { Photo } from "@/components/photo";
 import { useToast } from "@/components/toast";
-import { Button, Card, cx, EmptyState, inputClass } from "@/components/ui";
+import { Button, Card, chipClass, cx, EmptyState, inputClass } from "@/components/ui";
 import { useRequestId, useServerAction } from "@/components/use-server-action";
 import type { ActionResult } from "@/lib/action-result";
+import { initials } from "@/lib/company-match";
+import { matchesAll, searchTerms } from "@/lib/search-text";
 import { deleteBoxAction } from "../actions";
 
 export type LineRow = {
@@ -17,9 +19,82 @@ export type LineRow = {
   photoKey: string | null;
   available: number;
   companies: string;
-  /** Replaces the "N available · companies" line (e.g. "Need 50 · 20 packed · 80 here"). */
+  /** What kind of thing it is (Banner, Leaflet…), used by the filter. */
+  type?: string | null;
+  /** Replaces the "N available · type · companies" line (e.g. "Need 50 · 20 packed · 80 here"). */
   hint?: string;
 };
+
+/** Marks "items without a type" in the type filter (a real type name is never empty). */
+const NO_TYPE = "";
+
+/**
+ * Narrow a long list of rows down by typed words and/or by type. It only
+ * changes which rows are shown: quantities already entered are kept.
+ */
+export function useRowFilter<T extends LineRow>(rows: T[]) {
+  const [text, setText] = useState("");
+  const [type, setType] = useState<string | null>(null);
+  const types = useMemo(
+    () => [...new Set(rows.map((r) => r.type).filter((t): t is string => Boolean(t)))].sort((a, b) => a.localeCompare(b, "en-GB")), // a fixed locale, so server and browser agree on the order
+    [rows],
+  );
+  const hasUntyped = useMemo(() => rows.some((r) => !r.type), [rows]);
+  const shown = useMemo(() => {
+    const terms = searchTerms(text);
+    // Like the Items search: name, type and company, and company initials ("NL", "FF").
+    const searchable = (r: T) => `${r.name} ${r.type ?? ""} ${r.companies} ${r.companies.split(",").map(initials).join(" ")}`;
+    return rows.filter((r) => (type === null || (r.type ?? NO_TYPE) === type) && matchesAll(searchable(r), terms));
+  }, [rows, text, type]);
+  return { text, setText, type, setType, types, hasUntyped, shown, total: rows.length };
+}
+
+/** The filter's controls: a text box for long lists, and a chip per type when there is more than one. */
+export function RowFilter({ filter }: { filter: ReturnType<typeof useRowFilter> }) {
+  const { text, setText, type, setType, types, hasUntyped, shown, total } = filter;
+  const showTypes = types.length + (hasUntyped ? 1 : 0) >= 2;
+  if (total <= 6 && !showTypes) return null;
+  const chip = (value: string | null, label: string) => (
+    <button key={value ?? "all"} type="button" aria-pressed={type === value} onClick={() => setType(value)} className={chipClass(type === value)}>
+      {label}
+    </button>
+  );
+  return (
+    <div className="space-y-2">
+      {total > 6 && (
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Filter by name, type or company…"
+          className={inputClass}
+          aria-label="Filter items"
+        />
+      )}
+      {showTypes && (
+        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0" role="group" aria-label="Filter by type">
+          {chip(null, "All types")}
+          {types.map((t) => chip(t, t))}
+          {hasUntyped && chip(NO_TYPE, "No type")}
+        </div>
+      )}
+      {shown.length === 0 && (
+        <p className="text-sm text-gray-600">
+          Nothing here matches.{" "}
+          <button
+            type="button"
+            className="font-medium text-brand-700"
+            onClick={() => {
+              setText("");
+              setType(null);
+            }}
+          >
+            Show everything
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
 
 /**
  * A list of items with a quantity for each — used for packing (start at 0)
@@ -73,7 +148,7 @@ export function Row({
         <div className="min-w-0 flex-1">
           <p className="font-medium">{row.name}</p>
           <p className="text-sm text-gray-600">
-            {row.hint ?? `${row.available} available${row.companies ? ` · ${row.companies}` : ""}`}
+            {row.hint ?? [`${row.available} available`, row.type, row.companies].filter(Boolean).join(" · ")}
           </p>
         </div>
       </div>
@@ -103,14 +178,10 @@ export function PackForm({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [filter, setFilter] = useState("");
+  const filter = useRowFilter(rows);
   const { qty, setQty, lines, total, tooMany } = useLines(rows, false);
   const { run, pending, error } = useServerAction(action);
   const requestId = useRequestId();
-  const shown = useMemo(
-    () => rows.filter((r) => r.name.toLowerCase().includes(filter.trim().toLowerCase())),
-    [rows, filter],
-  );
 
   if (rows.length === 0) return <EmptyState>There&apos;s no loose stock here to pack.</EmptyState>;
 
@@ -128,24 +199,24 @@ export function PackForm({
 
   return (
     <div className="space-y-3 pb-24">
-      {rows.length > 6 && (
-        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter items…" className={inputClass} aria-label="Filter items" />
+      <RowFilter filter={filter} />
+      {filter.shown.length > 0 && (
+        <Card>
+          <ul className="divide-y divide-gray-100">
+            {filter.shown.map((r) => (
+              <Row
+                key={r.itemId}
+                row={r}
+                value={qty[r.itemId]}
+                onChange={(v) => setQty((q) => ({ ...q, [r.itemId]: v }))}
+                ticked
+                onTick={() => {}}
+                tickable={false}
+              />
+            ))}
+          </ul>
+        </Card>
       )}
-      <Card>
-        <ul className="divide-y divide-gray-100">
-          {shown.map((r) => (
-            <Row
-              key={r.itemId}
-              row={r}
-              value={qty[r.itemId]}
-              onChange={(v) => setQty((q) => ({ ...q, [r.itemId]: v }))}
-              ticked
-              onTick={() => {}}
-              tickable={false}
-            />
-          ))}
-        </ul>
-      </Card>
       <StickyBar>
         {error && <FormError message={error} />}
         <Button className="min-h-14 w-full text-lg" disabled={pending || total === 0 || tooMany.length > 0} onClick={submit}>

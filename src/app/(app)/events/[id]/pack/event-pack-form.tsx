@@ -7,7 +7,7 @@ import { useToast } from "@/components/toast";
 import { Button, Card, cx } from "@/components/ui";
 import { useRequestId, useServerAction } from "@/components/use-server-action";
 import { plural } from "@/lib/format";
-import { Row, StickyBar, type LineRow } from "../../../boxes/[code]/lines-form";
+import { Row, RowFilter, StickyBar, useRowFilter, type LineRow } from "../../../boxes/[code]/lines-form";
 import { packForEventAction } from "../../actions";
 
 export type PackRow = LineRow & { start: number };
@@ -37,6 +37,8 @@ export function EventPackForm({
   const [qty, setQty] = useState<Record<number, string>>(() => Object.fromEntries(all.map((r) => [r.itemId, String(r.start)])));
   const [boxId, setBoxId] = useState("");
   const [showOthers, setShowOthers] = useState(listRows.length === 0);
+  // The items that are not on the packing list can be many, so they get a filter (text and type).
+  const others = useRowFilter(otherRows);
   const { run, pending, error } = useServerAction((form: FormData) => packForEventAction(eventId, form));
 
   const n = (id: number) => Number.parseInt(qty[id] || "0", 10);
@@ -112,7 +114,8 @@ export function EventPackForm({
         (showOthers ? (
           <>
             <h2 className="pt-2 text-lg font-semibold">{listRows.length ? "Other items here" : "Items here"}</h2>
-            {rowList(otherRows)}
+            <RowFilter filter={others} />
+            {others.shown.length > 0 && rowList(others.shown)}
           </>
         ) : (
           <Button variant="secondary" className="w-full" onClick={() => setShowOthers(true)}>

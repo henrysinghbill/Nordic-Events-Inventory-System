@@ -6,6 +6,7 @@ import { createEvent, eventFieldsSchema, packForEvent } from "@/server/events";
 import { inventoryWorkbook } from "@/server/export";
 import { addStock } from "@/server/stock";
 import { shipBox } from "@/server/stock/boxes";
+import { findOrCreateType } from "@/server/types";
 import { buildXlsx } from "@/server/xlsx";
 import { makeItem, resetDb, seedBasics, testDb } from "./helpers/db";
 
@@ -63,7 +64,8 @@ describe("inventory export", () => {
 
   it("lists every place things are, items with totals, boxes and events", async () => {
     const tote = await makeItem("Tote bag", s.nl.id);
-    await testDb.item.update({ where: { id: tote.id }, data: { lowStockThreshold: 100 } });
+    const { type } = await tx((t) => findOrCreateType(t, s.actor, "Giveaway"));
+    await testDb.item.update({ where: { id: tote.id }, data: { lowStockThreshold: 100, typeId: type.id } });
     await tx((t) => addStock(t, s.actor, { itemId: tote.id, quantity: 60, place: { locationId: s.cph.id } }));
     const event = await tx((t) =>
       createEvent(t, s.actor, eventFieldsSchema.parse({ name: "Vitafoods 2026", venueId: s.venue.id, startDate: "2026-05-12", endDate: "2026-05-14" })),
@@ -78,9 +80,12 @@ describe("inventory export", () => {
     expect(where).toContain("<t>(loose)</t>");
     expect(where).toContain("<t>In transit: Copenhagen storeroom → Vitafoods Barcelona</t>");
     expect(where).toContain("<t>Vitafoods 2026</t>");
+    expect(where).toContain('<c r="B1" s="1" t="inlineStr"><is><t>Type</t></is></c>');
+    expect(where).toContain('<c r="B2" t="inlineStr"><is><t>Giveaway</t></is></c>');
     const items = files.get("xl/worksheets/sheet2.xml")!;
-    expect(items).toContain('<c r="C2"><v>60</v></c>'); // 40 loose + 20 in the box
-    expect(items).toContain('<c r="E2" t="inlineStr"><is><t>Yes</t></is></c>'); // below 100
+    expect(items).toContain('<c r="B2" t="inlineStr"><is><t>Giveaway</t></is></c>');
+    expect(items).toContain('<c r="D2"><v>60</v></c>'); // 40 loose + 20 in the box
+    expect(items).toContain('<c r="F2" t="inlineStr"><is><t>Yes</t></is></c>'); // below 100
     const boxes = files.get("xl/worksheets/sheet3.xml")!;
     expect(boxes).toContain("<t>20 × Tote bag</t>");
     const events = files.get("xl/worksheets/sheet4.xml")!;

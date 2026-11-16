@@ -8,6 +8,7 @@
 //   - a Holding is in exactly one of (box, location)
 //   - Holding.quantity > 0 (empty holdings are deleted)
 //   - DHL piece IDs and "other" barcodes are unique; waybills may repeat
+//   - item type names are unique whatever the capitals ("Banner" = "banner")
 
 generator client {
   provider = "prisma-client"
@@ -71,6 +72,9 @@ enum HistoryAction {
   EVENT_DELETED
   EVENT_WRAPPED_UP
   DHL_DELIVERED
+  TYPE_CREATED
+  TYPE_RENAMED
+  TYPE_DELETED
 }
 
 model User {
@@ -124,11 +128,25 @@ model Location {
   events    Event[]
 }
 
+/// What kind of thing an item is (Banner, Leaflet, Booklet…), for quicker lookup.
+/// Anyone can add a type while filling in an item; administrators rename and delete them.
+model ItemType {
+  id        Int      @id @default(autoincrement())
+  /// Also unique ignoring capitals (enforced in SQL).
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  items Item[]
+}
+
 model Item {
   id                Int       @id @default(autoincrement())
   name              String
   description       String?
   lowStockThreshold Int?
+  /// Optional. Deleting a type leaves its items without one.
+  typeId            Int?
+  type              ItemType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
   archivedAt        DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -140,6 +158,7 @@ model Item {
   eventLines EventItem[]
 
   @@index([name])
+  @@index([typeId])
 }
 
 model ItemCompany {

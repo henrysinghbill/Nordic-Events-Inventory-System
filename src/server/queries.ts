@@ -1,5 +1,9 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
+import { interpretScan } from "@/lib/barcodes";
+import { initials } from "@/lib/company-match";
+import { matchesAll, searchTerms, type SearchTerm } from "@/lib/search-text";
+import { whereSummary } from "@/lib/where";
 import { db } from "./db";
 
 /** Read-only data loading for pages. All changes live in stock/, items.ts and the actions. */
@@ -53,61 +57,131 @@ export async function locationsOverview(): Promise<LocationOverview[]> {
 
 const mainPhoto = { orderBy: { position: "asc" }, take: 1, select: { key: true } } as const;
 
+const contains = (text: string) => ({ contains: text, mode: "insensitive" as const });
+
+/** Stock that still counts: loose, or in a box that hasn't been discarded. */
+const liveHolding: Prisma.HoldingWhereInput = { OR: [{ boxId: null }, { box: { deletedAt: null } }] };
+
+/**
+ * One condition per typed word: the word has to appear in the item's name,
+ * description, type or a company name. Company initials work too ("FF", "NL"),
+ * as they do in bulk entry.
+ */
+function itemTextWhere(terms: SearchTerm[], companies: { id: number; name: string }[]): Prisma.ItemWhereInput[] {
+  return terms.map(({ word, stem }) => {
+    const byInitials = word.length >= 2 ? companies.filter((c) => initials(c.name) === word).map((c) => c.id) : [];
+    return {
+      OR: [
+        { name: contains(stem) },
+        { description: contains(stem) },
+        { type: { name: contains(stem) } },
+        { companies: { some: { company: { name: contains(stem) } } } },
+        ...(byInitials.length ? [{ companies: { some: { companyId: { in: byInitials } } } }] : []),
+      ],
+    };
+  });
+}
+
 export type ItemCard = {
   id: number;
   name: string;
   archived: boolean;
   photoKey: string | null;
+  type: string | null;
   companies: string[];
   quantity: number;
+  /** Where the stock is, in a few words ("BOX-0012 · Copenhagen storeroom", "3 places"); null if there is none. */
+  where: string | null;
 };
 
-/**
- * Item search: name contains the query (case-insensitive), optional company
- * and location filters. Quantity is the total, or only what's at the chosen
- * location when one is selected.
- */
-export async function searchItems(opts: {
+export type StockFilter = "in" | "low" | "out";
+
+export type ItemSearch = {
+  /** Typed text: every word must match the name, description, type or a company. */
   q?: string;
+  typeId?: number;
+  /** Only items that have no type yet. */
+  noType?: boolean;
   companyId?: number;
   locationId?: number;
+  /** in = something in stock, out = nothing in stock, low = below the item's low-stock level. */
+  stock?: StockFilter;
   includeArchived?: boolean;
   missingPhoto?: boolean;
   take?: number;
-}): Promise<ItemCard[]> {
+};
+
+/**
+ * The item list with its search and filters. Quantity and "where" cover
+ * everywhere, or only the chosen location when one is selected. Items whose
+ * name matches come before those found through their description, type or
+ * company. `more` is true when there were more matches than `take`.
+ */
+export async function searchItems(opts: ItemSearch, client = db): Promise<{ items: ItemCard[]; more: boolean }> {
+  const limit = opts.take ?? 500;
+  const terms = searchTerms(opts.q ?? "");
+  const companies = terms.length ? await client.company.findMany({ select: { id: true, name: true } }) : [];
   const atLocation: Prisma.HoldingWhereInput | undefined = opts.locationId
     ? { OR: [{ locationId: opts.locationId }, { box: { locationId: opts.locationId, deletedAt: null } }] }
     : undefined;
-  const items = await db.item.findMany({
-    where: {
-      ...(opts.includeArchived ? {} : { archivedAt: null }),
-      ...(opts.q ? { name: { contains: opts.q.trim(), mode: "insensitive" } } : {}),
-      ...(opts.companyId ? { companies: { some: { companyId: opts.companyId } } } : {}),
-      ...(atLocation ? { holdings: { some: atLocation } } : {}),
-      ...(opts.missingPhoto ? { photos: { none: {} } } : {}),
-    },
+
+  const and: Prisma.ItemWhereInput[] = itemTextWhere(terms, companies);
+  if (!opts.includeArchived) and.push({ archivedAt: null });
+  if (opts.noType) and.push({ typeId: null });
+  else if (opts.typeId) and.push({ typeId: opts.typeId });
+  if (opts.companyId) and.push({ companies: { some: { companyId: opts.companyId } } });
+  if (atLocation) and.push({ holdings: { some: atLocation } });
+  if (opts.missingPhoto) and.push({ photos: { none: {} } });
+  if (opts.stock === "in") and.push({ holdings: { some: liveHolding } });
+  if (opts.stock === "out") and.push({ holdings: { none: liveHolding } });
+  if (opts.stock === "low") and.push({ id: { in: (await lowStockItems(client)).map((i) => i.id) } });
+
+  const rows = await client.item.findMany({
+    where: { AND: and },
     include: {
       photos: mainPhoto,
+      type: { select: { name: true } },
       companies: { include: { company: { select: { name: true } } } },
-      holdings: { where: atLocation ?? {}, select: { quantity: true } },
+      holdings: {
+        where: atLocation ?? liveHolding,
+        select: {
+          quantity: true,
+          location: { select: { name: true } },
+          box: { select: { id: true, location: { select: { name: true } } } },
+        },
+      },
     },
-    orderBy: { name: "asc" },
-    take: opts.take ?? 200,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: limit + 1,
   });
-  return items.map((i) => ({
+  const more = rows.length > limit;
+  const shown = rows.slice(0, limit);
+  // Name matches first; the sort is stable, so each group stays in name order.
+  if (terms.length) shown.sort((a, b) => Number(!matchesAll(a.name, terms)) - Number(!matchesAll(b.name, terms)));
+
+  const items = shown.map((i) => ({
     id: i.id,
     name: i.name,
     archived: Boolean(i.archivedAt),
     photoKey: i.photos[0]?.key ?? null,
+    type: i.type?.name ?? null,
     companies: i.companies.map((c) => c.company.name).sort(),
     quantity: i.holdings.reduce((sum, h) => sum + h.quantity, 0),
+    where: whereSummary(
+      i.holdings.map((h) => ({
+        location: h.location?.name,
+        box: h.box ? { id: h.box.id, location: h.box.location?.name ?? null } : null,
+      })),
+    ),
   }));
+  return { items, more };
 }
 
 export async function itemDetail(id: number) {
   return db.item.findUnique({
     where: { id },
     include: {
+      type: true,
       photos: { orderBy: { position: "asc" } },
       companies: { include: { company: true }, orderBy: { company: { name: "asc" } } },
       holdings: {
@@ -131,6 +205,7 @@ export async function locationDetail(id: number, companyId?: number) {
       item: {
         include: {
           photos: mainPhoto,
+          type: { select: { name: true } },
           companies: { include: { company: { select: { name: true } } } },
         },
       },
@@ -149,6 +224,7 @@ export function history(where: Prisma.HistoryEntryWhereInput, take = 50) {
 const itemForBox = {
   include: {
     photos: mainPhoto,
+    type: { select: { name: true } },
     companies: { include: { company: { select: { name: true } } } },
   },
 } as const;
@@ -205,23 +281,61 @@ export function activeBoxes() {
   });
 }
 
-/** Boxes whose code or a linked barcode matches the search text. */
-export async function searchBoxes(q: string, locationId?: number) {
-  const text = q.trim();
-  if (!text) return [];
+/**
+ * Typed text → boxes. A box matches when the text is
+ *   - its number ("BOX-0047", "box 47", "47"),
+ *   - part of a barcode linked to it (DHL piece ID, waybill, other), or
+ *   - words that all appear in its description or in the name or type of something inside it.
+ */
+function boxTextWhere(text: string): Prisma.BoxWhereInput {
   const digits = /^(?:BOX[-\s]*)?0*(\d{1,9})$/i.exec(text)?.[1];
-  const normalised = text.replace(/[\s()[\]{}]/g, "").toUpperCase().replace(/^JJD/, "JD");
-  return db.box.findMany({
-    where: {
-      deletedAt: null,
-      ...(locationId ? { locationId } : {}),
-      OR: [
-        ...(digits ? [{ id: Number(digits) }] : []),
-        ...(normalised.length >= 4 ? [{ barcodes: { some: { value: { contains: normalised } } } }] : []),
-      ],
+  const scan = interpretScan(text);
+  const barcode = scan.kind === "dhl_piece" || scan.kind === "dhl_waybill" || scan.kind === "other" ? scan.value : "";
+  const terms = searchTerms(text);
+  const inside = (stem: string): Prisma.BoxWhereInput => ({
+    holdings: { some: { item: { OR: [{ name: contains(stem) }, { type: { name: contains(stem) } }] } } },
+  });
+  return {
+    OR: [
+      ...(digits ? [{ id: Number(digits) }] : []),
+      ...(barcode.length >= 4 ? [{ barcodes: { some: { value: { contains: barcode } } } }] : []),
+      ...(terms.length ? [{ AND: terms.map(({ stem }) => ({ OR: [{ description: contains(stem) }, inside(stem)] })) }] : []),
+    ],
+  };
+}
+
+export type BoxSearch = {
+  /** Typed text: see boxTextWhere. */
+  q?: string;
+  locationId?: number;
+  /** Only boxes on the move (wins over locationId). */
+  inTransit?: boolean;
+  eventId?: number;
+  take?: number;
+};
+
+/** Every box that still exists (lowest number first), with what's inside, for the Boxes list and the search. */
+export function boxesList(opts: BoxSearch = {}, client = db) {
+  const text = (opts.q ?? "").trim();
+  const and: Prisma.BoxWhereInput[] = [];
+  if (opts.inTransit) and.push({ status: "IN_TRANSIT" });
+  else if (opts.locationId) and.push({ locationId: opts.locationId });
+  if (opts.eventId) and.push({ eventId: opts.eventId });
+  if (text) and.push(boxTextWhere(text));
+  return client.box.findMany({
+    where: { deletedAt: null, AND: and },
+    include: {
+      location: true,
+      origin: true,
+      destination: true,
+      event: { select: { id: true, name: true, wrappedUpAt: true } },
+      holdings: {
+        include: { item: { include: { photos: mainPhoto } } },
+        orderBy: { quantity: "desc" },
+      },
     },
-    include: { location: true, destination: true, _count: { select: { holdings: true } } },
-    take: 20,
+    orderBy: { id: "asc" },
+    ...(opts.take ? { take: opts.take } : {}),
   });
 }
 
@@ -249,19 +363,94 @@ export function countMissingPhotos(client = db) {
   return client.item.count({ where: { archivedAt: null, photos: { none: {} } } });
 }
 
-/** Items whose names match, for "add to the existing item?" while typing. */
-export function itemNameMatches(q: string, take = 6) {
-  return db.item.findMany({
-    where: { archivedAt: null, name: { contains: q.trim(), mode: "insensitive" } },
+/**
+ * Items for the pickers that search as you type.
+ *  - Normally every typed word has to be in the name: this is the "already
+ *    exists? add stock to it instead" check while adding items.
+ *  - `wide` also looks at type, company and description, and `typeId` lists a
+ *    whole type: this is for choosing items for an event's packing list.
+ */
+export async function suggestItems(opts: { q?: string; typeId?: number; wide?: boolean; take?: number }, client = db) {
+  const terms = searchTerms(opts.q ?? "");
+  if (terms.length === 0 && !opts.typeId) return [];
+  const companies =
+    opts.wide && terms.length ? await client.company.findMany({ select: { id: true, name: true } }) : [];
+  const text: Prisma.ItemWhereInput[] = opts.wide
+    ? itemTextWhere(terms, companies)
+    : terms.map(({ stem }) => ({ name: contains(stem) }));
+  const rows = await client.item.findMany({
+    where: { archivedAt: null, ...(opts.typeId ? { typeId: opts.typeId } : {}), AND: text },
     select: {
       id: true,
       name: true,
       photos: mainPhoto,
+      type: { select: { name: true } },
       companies: { select: { companyId: true } },
     },
-    orderBy: { name: "asc" },
-    take,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: opts.take ?? 6,
   });
+  if (opts.wide && terms.length) rows.sort((a, b) => Number(!matchesAll(a.name, terms)) - Number(!matchesAll(b.name, terms)));
+  return rows.map((i) => ({
+    id: i.id,
+    name: i.name,
+    photoKey: i.photos[0]?.key ?? null,
+    type: i.type?.name ?? null,
+    companyIds: i.companies.map((c) => c.companyId),
+  }));
+}
+
+// ---------------------------------------------------------------- item types
+
+/** Every item type, A to Z, with how many items have it (archived items included). */
+export function itemTypes(client = db) {
+  return client.itemType.findMany({
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    include: { _count: { select: { items: true } } },
+  });
+}
+
+/**
+ * Which types are in use, for the filter on the Items page.
+ *   all     — every type, A to Z
+ *   used    — only the types that at least one (non-archived) item has
+ *   untyped — how many items have no type
+ */
+export async function typeUsage(includeArchived = false, client = db) {
+  const [groups, all] = await Promise.all([
+    client.item.groupBy({
+      by: ["typeId"],
+      where: includeArchived ? {} : { archivedAt: null },
+      _count: { _all: true },
+    }),
+    client.itemType.findMany({ orderBy: [{ name: "asc" }, { id: "asc" }], select: { id: true, name: true } }),
+  ]);
+  const counts = new Map(groups.map((g) => [g.typeId, g._count._all]));
+  return { all, used: all.filter((t) => counts.has(t.id)), untyped: counts.get(null) ?? 0 };
+}
+
+/** Active items that have no type yet, for the "Items without a type" page. */
+export async function untypedItems(client = db) {
+  const rows = await client.item.findMany({
+    where: { archivedAt: null, typeId: null },
+    select: {
+      id: true,
+      name: true,
+      photos: mainPhoto,
+      companies: { select: { company: { select: { name: true } } } },
+    },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
+  return rows.map((i) => ({
+    id: i.id,
+    name: i.name,
+    photoKey: i.photos[0]?.key ?? null,
+    companies: i.companies.map((c) => c.company.name).sort(),
+  }));
+}
+
+export function countUntyped(client = db) {
+  return client.item.count({ where: { archivedAt: null, typeId: null } });
 }
 
 // ---------------------------------------------------------------- events
@@ -336,6 +525,32 @@ export async function lastShippedFrom(boxIds: number[], locationId: number): Pro
   const out = new Map<number, number>();
   for (const r of rows) if (r.boxId && r.fromLocationId && !out.has(r.boxId)) out.set(r.boxId, r.fromLocationId);
   return out;
+}
+
+/** Events whose name or venue contains every typed word, newest first (search page). */
+export async function searchEvents(q: string, take = 8, client = db) {
+  const terms = searchTerms(q);
+  if (terms.length === 0) return [];
+  return client.event.findMany({
+    where: { AND: terms.map(({ stem }) => ({ OR: [{ name: contains(stem) }, { venue: { name: contains(stem) } }] })) },
+    include: { venue: true },
+    orderBy: [{ startDate: "desc" }, { id: "desc" }],
+    take,
+  });
+}
+
+/** Active locations whose name or country contains every typed word (search page). */
+export async function searchLocations(q: string, take = 8, client = db) {
+  const terms = searchTerms(q);
+  if (terms.length === 0) return [];
+  return client.location.findMany({
+    where: {
+      archivedAt: null,
+      AND: terms.map(({ stem }) => ({ OR: [{ name: contains(stem) }, { country: contains(stem) }] })),
+    },
+    orderBy: [{ type: "asc" }, { name: "asc" }],
+    take,
+  });
 }
 
 /** Events that haven't been wrapped up yet, soonest first (home page). */

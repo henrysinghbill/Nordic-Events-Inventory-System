@@ -32,6 +32,7 @@ export default async function PackPage({ params }: PageProps<"/boxes/[code]/pack
           name: h.item.name,
           photoKey: h.item.photos[0]?.key ?? null,
           available: h.quantity,
+          type: h.item.type?.name ?? null,
           companies: h.item.companies.map((c) => c.company.name).join(", "),
         }))}
       />

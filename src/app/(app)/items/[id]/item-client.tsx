@@ -7,9 +7,11 @@ import { CompanyChips, QuantityInput } from "@/components/form-controls";
 import { CameraIcon } from "@/components/icons";
 import { Photo } from "@/components/photo";
 import { useToast } from "@/components/toast";
+import { TypePicker } from "@/components/type-picker";
 import { Button, Card, cx } from "@/components/ui";
 import { newRequestId, useServerAction } from "@/components/use-server-action";
 import { resizeImage } from "@/lib/resize-image";
+import type { TypeOption } from "@/lib/type-suggest";
 import {
   addItemPhotoAction,
   addStockAction,
@@ -199,20 +201,32 @@ export function ArchiveButton({ itemId, archived, quantity }: { itemId: number; 
 export function EditItemForm({
   item,
   companies,
+  types,
+  doneHref,
 }: {
-  item: { id: number; name: string; description: string | null; lowStockThreshold: number | null; companyIds: number[] };
+  item: {
+    id: number;
+    name: string;
+    description: string | null;
+    lowStockThreshold: number | null;
+    companyIds: number[];
+    typeId: number | null;
+  };
   companies: { id: number; name: string }[];
+  types: TypeOption[];
+  /** Where to go after saving: the item's page (with its own back link kept). */
+  doneHref: string;
 }) {
   const router = useRouter();
   const [companyIds, setCompanyIds] = useState(item.companyIds);
+  const [typeId, setTypeId] = useState(item.typeId);
   return (
-    <ActionForm
-      action={updateItemAction.bind(null, item.id)}
-      successMessage="Item saved."
-      onSuccess={() => router.push(`/items/${item.id}`)}
-    >
+    <ActionForm action={updateItemAction.bind(null, item.id)} successMessage="Item saved." onSuccess={() => router.push(doneHref)}>
       <Field label="Name" name="name">
         <TextInput name="name" defaultValue={item.name} />
+      </Field>
+      <Field label="Type (optional)" name="typeId" hint="What kind of thing it is, e.g. Banner. Makes it quicker to find.">
+        <TypePicker types={types} value={typeId} onChange={setTypeId} name="typeId" />
       </Field>
       <Field label="Companies" name="companyIds">
         <CompanyChips companies={companies} selected={companyIds} onChange={setCompanyIds} name="companyIds" />

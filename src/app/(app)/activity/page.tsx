@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { HistoryEntry } from "@/generated/prisma/client";
 import { HistoryList, type HistoryLink } from "@/components/history-list";
 import { EmptyState, LinkButton, PageHeader, SectionTitle, inputClass } from "@/components/ui";
+import { pathWithQuery, withBack } from "@/lib/back";
 import { boxCode } from "@/lib/format";
 import { toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
@@ -41,10 +42,12 @@ export default async function ActivityPage({ searchParams }: PageProps<"/activit
   const itemName = new Map(items.map((i) => [i.id, i.name]));
   const eventName = new Map(events.map((e) => [e.id, e.name]));
   const locationName = new Map(locations.map((l) => [l.id, l.name]));
+  /** This page as it is now, so an item or box opened from here links back to the same place in the list. */
+  const here = pathWithQuery("/activity", { user: userId, before });
   const links = (e: HistoryEntry): HistoryLink[] => {
     const out: HistoryLink[] = [];
-    if (e.itemId && itemName.has(e.itemId)) out.push({ href: `/items/${e.itemId}`, label: itemName.get(e.itemId)! });
-    if (e.boxId) out.push({ href: `/boxes/${boxCode(e.boxId)}`, label: boxCode(e.boxId) });
+    if (e.itemId && itemName.has(e.itemId)) out.push({ href: withBack(`/items/${e.itemId}`, here), label: itemName.get(e.itemId)! });
+    if (e.boxId) out.push({ href: withBack(`/boxes/${boxCode(e.boxId)}`, here), label: boxCode(e.boxId) });
     if (e.eventId && eventName.has(e.eventId)) out.push({ href: `/events/${e.eventId}`, label: eventName.get(e.eventId)! });
     if (!e.itemId && !e.boxId && e.locationId && locationName.has(e.locationId)) {
       out.push({ href: `/locations/${e.locationId}`, label: locationName.get(e.locationId)! });

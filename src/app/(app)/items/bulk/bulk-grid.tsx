@@ -9,30 +9,46 @@ import { Button, Card, cx } from "@/components/ui";
 import { useRequestId, useServerAction } from "@/components/use-server-action";
 import { parseBoxCode } from "@/lib/barcodes";
 import { matchCompanies, type CompanyOption } from "@/lib/company-match";
+import { suggestType } from "@/lib/type-suggest";
 import { bulkAddAction } from "../../stock-actions";
 
 type Option = { id: number; name: string };
 type BoxOption = { id: number; code: string; locationId: number };
-type Row = { key: number; name: string; companies: string; quantity: string; locationId: string; boxId: string; forceNew: boolean };
+type Row = {
+  key: number;
+  name: string;
+  /** The type as typed. Until it is touched, the type suggested from the name is used (see typeOf). */
+  type: string;
+  typeTouched: boolean;
+  companies: string;
+  quantity: string;
+  locationId: string;
+  boxId: string;
+  forceNew: boolean;
+};
 
-const COLS = ["name", "companies", "quantity", "locationId", "boxId"] as const;
+const COLS = ["name", "type", "companies", "quantity", "locationId", "boxId"] as const;
 let nextKey = 1;
 
 function emptyRow(locationId: string): Row {
-  return { key: nextKey++, name: "", companies: "", quantity: "", locationId, boxId: "", forceNew: false };
+  return { key: nextKey++, name: "", type: "", typeTouched: false, companies: "", quantity: "", locationId, boxId: "", forceNew: false };
 }
-const isFilled = (r: Row) => Boolean(r.name.trim() || r.companies.trim() || r.quantity.trim());
+const isFilled = (r: Row) =>
+  Boolean(r.name.trim() || r.companies.trim() || r.quantity.trim() || (r.typeTouched && r.type.trim()));
+const isNumber = (s: string | undefined) => /^\d+$/.test(s ?? "");
 
 const cell =
   "block w-full min-h-10 rounded-md border border-gray-300 bg-white px-2 text-base focus:border-brand-500 focus:ring-2 focus:ring-brand-200 focus:outline-none";
 
 export function BulkGrid({
   companies,
+  types,
   locations,
   boxes,
   items,
 }: {
   companies: CompanyOption[];
+  types: Option[];
   locations: Option[];
   boxes: BoxOption[];
   items: Option[];
@@ -57,6 +73,10 @@ export function BulkGrid({
   }, [items]);
 
   const filledCount = rows.filter(isFilled).length;
+
+  /** A row's type: what was typed there, or else the type its name suggests ("…roll-up banner" → Banner). */
+  const typeOf = (r: Row) => (r.typeTouched ? r.type.trim() : (suggestType(r.name, types)?.name ?? ""));
+  const knownType = (name: string) => types.find((t) => t.name.toLowerCase() === name.toLowerCase());
 
   /** For rows that repeat a new name used earlier in the grid: the earlier row's number. */
   const sameAsRow = useMemo(() => {
@@ -103,7 +123,14 @@ export function BulkGrid({
       e.preventDefault(); // fill down, like a spreadsheet
       const field = COLS[col];
       const above = rows[row - 1];
-      update(row, field === "locationId" ? { locationId: above.locationId, boxId: "" } : { [field]: above[field] });
+      update(
+        row,
+        field === "locationId"
+          ? { locationId: above.locationId, boxId: "" }
+          : field === "type"
+            ? { type: typeOf(above), typeTouched: true }
+            : { [field]: above[field] },
+      );
     } else if (!isSelect && e.key === "ArrowDown") {
       e.preventDefault();
       focusCell(row + 1, col);
@@ -113,17 +140,28 @@ export function BulkGrid({
     }
   }
 
-  /** Paste several rows from a spreadsheet: name, companies, quantity, location, box. */
+  /**
+   * Paste several rows from a spreadsheet: name, type, companies, quantity, location, box.
+   * Sheets without a type column (name, companies, quantity, …) are recognised by
+   * where the quantity is, so they still paste correctly.
+   */
   function onPaste(e: React.ClipboardEvent, start: number) {
     const text = e.clipboardData.getData("text/plain");
     if (!/[\t\n]/.test(text.trim())) return; // a single value: normal paste
     e.preventDefault();
-    const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim());
+    const lines = text
+      .replace(/\r/g, "")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => l.split("\t").map((s) => s.trim()));
+    const withoutType = lines.filter((c) => isNumber(c[2])).length > lines.filter((c) => isNumber(c[3])).length;
     setRows((rs) => {
       const next = [...rs];
       while (next.length < start + lines.length) next.push(emptyRow(next.at(-1)?.locationId ?? firstLocation));
-      lines.forEach((line, i) => {
-        const [name = "", comps = "", qty = "", loc = "", box = ""] = line.split("\t").map((s) => s.trim());
+      lines.forEach((cells, i) => {
+        const [name = "", type = "", comps = "", qty = "", loc = "", box = ""] = withoutType
+          ? [cells[0], "", ...cells.slice(1)]
+          : cells;
         const prev = next[start + i];
         const locMatch = loc
           ? locations.find((l) => l.name.toLowerCase() === loc.toLowerCase()) ??
@@ -138,6 +176,8 @@ export function BulkGrid({
         next[start + i] = {
           ...prev,
           name,
+          type,
+          typeTouched: Boolean(type),
           companies: comps,
           quantity: qty.replace(/[^0-9]/g, ""),
           locationId,
@@ -160,6 +200,7 @@ export function BulkGrid({
         return {
           row: i + 1,
           name: r.name,
+          type: typeOf(r) || null,
           companies: r.companies,
           quantity: Number.parseInt(r.quantity || "0", 10),
           locationId: Number(r.locationId),
@@ -190,17 +231,23 @@ export function BulkGrid({
       <Card className="p-3 text-sm text-gray-700">
         <p>
           <strong>Tab</strong> moves right, <strong>Enter</strong> moves down, <strong>Ctrl+D</strong> copies the cell above.
-          You can <strong>paste rows from a spreadsheet</strong> into a Name cell (columns: name, companies, quantity,
-          location, box). Companies can be typed as names, the start of a name, or initials (e.g. <em>FF, NL</em>).
+          You can <strong>paste rows from a spreadsheet</strong> into a Name cell (columns: name, type, companies,
+          quantity, location, box; the type column may be left out). Companies can be typed as names, the start of a
+          name, or initials (e.g. <em>FF, NL</em>).
+        </p>
+        <p className="mt-1">
+          <strong>Type</strong> is optional (e.g. <em>Banner</em>). It is suggested from the name, and a type that
+          doesn&apos;t exist yet is added to the list when you save.
         </p>
       </Card>
 
       <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
-        <table ref={tableRef} className="w-full min-w-[900px] border-collapse text-left">
+        <table ref={tableRef} className="w-full min-w-[1060px] border-collapse text-left">
           <thead className="bg-gray-50 text-sm text-gray-600">
             <tr>
               <th className="w-10 px-2 py-2">#</th>
               <th className="px-2 py-2">Name</th>
+              <th className="w-40 px-2 py-2">Type (optional)</th>
               <th className="w-56 px-2 py-2">Companies</th>
               <th className="w-24 px-2 py-2">Quantity</th>
               <th className="w-52 px-2 py-2">Location</th>
@@ -215,6 +262,14 @@ export function BulkGrid({
               const repeatOf = sameAsRow.get(i);
               const companyCheck = filled && !existing && !repeatOf ? matchCompanies(r.companies, companies) : null;
               const companyNames = companyCheck?.ids.map((id) => companies.find((c) => c.id === id)?.name).join(", ");
+              const type = existing || repeatOf ? "" : typeOf(r);
+              const typeNote = !type
+                ? null
+                : !knownType(type)
+                  ? "New type: added when you save"
+                  : !r.typeTouched
+                    ? "Suggested from the name"
+                    : null;
               const err = rowErrors[`row-${i + 1}`];
               const boxesHere = boxes.filter((b) => String(b.locationId) === r.locationId);
               return (
@@ -255,11 +310,28 @@ export function BulkGrid({
                   <td className="px-2 py-1.5">
                     <input
                       data-cell={`${i}:1`}
+                      value={type}
+                      disabled={Boolean(existing || repeatOf)}
+                      placeholder={existing ? "(existing item)" : repeatOf ? `(as row ${repeatOf})` : ""}
+                      onChange={(e) => update(i, { type: e.target.value, typeTouched: true })}
+                      onKeyDown={(e) => onKeyDown(e, i, 1)}
+                      list="bulk-types"
+                      maxLength={40}
+                      className={cx(cell, "disabled:bg-gray-50")}
+                      aria-label={`Row ${i + 1} type`}
+                    />
+                    {typeNote && (
+                      <p className={cx("mt-0.5 text-xs", knownType(type) ? "text-gray-600" : "text-brand-800")}>{typeNote}</p>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input
+                      data-cell={`${i}:2`}
                       value={existing || repeatOf ? "" : r.companies}
                       disabled={Boolean(existing || repeatOf)}
                       placeholder={existing ? "(existing item)" : repeatOf ? `(as row ${repeatOf})` : ""}
                       onChange={(e) => update(i, { companies: e.target.value })}
-                      onKeyDown={(e) => onKeyDown(e, i, 1)}
+                      onKeyDown={(e) => onKeyDown(e, i, 2)}
                       list="bulk-companies"
                       className={cx(cell, companyCheck?.error && r.companies.trim() && "border-red-400", "disabled:bg-gray-50")}
                       aria-label={`Row ${i + 1} companies`}
@@ -272,21 +344,21 @@ export function BulkGrid({
                   </td>
                   <td className="px-2 py-1.5">
                     <input
-                      data-cell={`${i}:2`}
+                      data-cell={`${i}:3`}
                       value={r.quantity}
                       inputMode="numeric"
                       onChange={(e) => update(i, { quantity: e.target.value.replace(/[^0-9]/g, "") })}
-                      onKeyDown={(e) => onKeyDown(e, i, 2)}
+                      onKeyDown={(e) => onKeyDown(e, i, 3)}
                       className={cx(cell, "text-right")}
                       aria-label={`Row ${i + 1} quantity`}
                     />
                   </td>
                   <td className="px-2 py-1.5">
                     <select
-                      data-cell={`${i}:3`}
+                      data-cell={`${i}:4`}
                       value={r.locationId}
                       onChange={(e) => update(i, { locationId: e.target.value, boxId: "" })}
-                      onKeyDown={(e) => onKeyDown(e, i, 3)}
+                      onKeyDown={(e) => onKeyDown(e, i, 4)}
                       className={cell}
                       aria-label={`Row ${i + 1} location`}
                     >
@@ -299,10 +371,10 @@ export function BulkGrid({
                   </td>
                   <td className="px-2 py-1.5">
                     <select
-                      data-cell={`${i}:4`}
+                      data-cell={`${i}:5`}
                       value={r.boxId}
                       onChange={(e) => update(i, { boxId: e.target.value })}
-                      onKeyDown={(e) => onKeyDown(e, i, 4)}
+                      onKeyDown={(e) => onKeyDown(e, i, 5)}
                       className={cell}
                       aria-label={`Row ${i + 1} box`}
                     >
@@ -319,6 +391,11 @@ export function BulkGrid({
             })}
           </tbody>
         </table>
+        <datalist id="bulk-types">
+          {types.map((t) => (
+            <option key={t.id} value={t.name} />
+          ))}
+        </datalist>
         <datalist id="bulk-companies">
           {companies.map((c) => (
             <option key={c.id} value={c.name} />
@@ -338,7 +415,7 @@ export function BulkGrid({
       {saved && (
         <p className="rounded-xl bg-green-50 p-3 text-green-900 ring-1 ring-green-200">
           {saved}{" "}
-          <Link href="/search?missingPhoto=1" className="font-semibold underline">
+          <Link href="/items?missingPhoto=1" className="font-semibold underline">
             Add photos to items that don&apos;t have one →
           </Link>
         </p>

@@ -1,91 +1,164 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FilterSelect } from "@/components/filter-bar";
-import { BoxIcon, ChevronRightIcon } from "@/components/icons";
+import { BoxList, boxPreview } from "@/components/box-list";
+import { CalendarIcon, ChevronRightIcon, PinIcon } from "@/components/icons";
 import { ItemGrid } from "@/components/item-grid";
-import { Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
-import { boxCode, plural } from "@/lib/format";
-import { str, toId } from "@/lib/params";
+import { SearchBox } from "@/components/search-box";
+import { Badge, Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
+import { pathWithQuery } from "@/lib/back";
+import { eventPhase, formatDayRange, PHASE_LABEL, PHASE_TONE, todayIn } from "@/lib/days";
+import { plural } from "@/lib/format";
+import { str } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
-import { activeCompanies, activeLocations, searchBoxes, searchItems } from "@/server/queries";
-import { ParamToggle, SearchBox } from "./search-box";
+import { config } from "@/server/config";
+import { boxesList, searchEvents, searchItems, searchLocations } from "@/server/queries";
 
 export const metadata: Metadata = { title: "Search" };
 
+/** How many items to show here; the Items page shows them all. */
+const ITEM_LIMIT = 30;
+
+type Boxes = Awaited<ReturnType<typeof boxesList>>;
+type Items = Awaited<ReturnType<typeof searchItems>>;
+
+/**
+ * "Find anything" (the search box on Home): one search across events,
+ * locations, boxes and items. Browsing everything is what the Items and
+ * Boxes pages are for.
+ */
 export default async function SearchPage({ searchParams }: PageProps<"/search">) {
   await requireUser();
-  const sp = await searchParams;
-  const q = str(sp.q).trim();
-  const companyId = toId(sp.company);
-  const locationId = toId(sp.location);
-  const includeArchived = sp.archived === "1";
-  const missingPhoto = sp.missingPhoto === "1";
-
-  const [companies, locations, items, boxes] = await Promise.all([
-    activeCompanies(),
-    activeLocations(),
-    searchItems({ q, companyId, locationId, includeArchived, missingPhoto }),
-    searchBoxes(q, locationId),
+  const q = str((await searchParams).q).trim();
+  // With nothing typed there is nothing to look for (the two list queries would return everything).
+  const [events, locations, boxes, { items, more }] = await Promise.all([
+    searchEvents(q),
+    searchLocations(q),
+    q ? boxesList({ q, take: 30 }) : Promise.resolve<Boxes>([]),
+    q ? searchItems({ q, take: ITEM_LIMIT }) : Promise.resolve<Items>({ items: [], more: false }),
   ]);
-  const filtered = Boolean(q || companyId || locationId || missingPhoto);
+  const here = pathWithQuery("/search", { q });
+  const today = todayIn(config().APP_TIMEZONE);
+  const nothing = Boolean(q) && events.length + locations.length + boxes.length + items.length === 0;
 
   return (
     <>
-      <PageHeader title="Search" />
-      <div className="space-y-2">
-        <SearchBox placeholder="Item name, box code or barcode…" />
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <FilterSelect
-            param="company"
-            label="Company"
-            allLabel="All companies"
-            options={companies.map((c) => ({ value: String(c.id), label: c.name }))}
-          />
-          <FilterSelect
-            param="location"
-            label="Location"
-            allLabel="All locations"
-            options={locations.map((l) => ({ value: String(l.id), label: l.name }))}
-          />
-        </div>
-        <div className="flex flex-wrap gap-x-6">
-          <ParamToggle param="missingPhoto" label="Missing photo only" />
-          <ParamToggle param="archived" label="Include archived items" />
-        </div>
-      </div>
+      <PageHeader back={{ href: "/", label: "Home" }} title="Search" />
+      <SearchBox placeholder="Item, box, event or location…" autoFocus={!q} />
 
-      {boxes.length > 0 && (
+      {!q && (
+        <Card className="mt-3 p-4 text-gray-700">
+          <p>Type to look through everything at once:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+            <li>items, by name, type, company or description</li>
+            <li>boxes, by number, DHL number, description or what&apos;s inside</li>
+            <li>events and locations, by name</li>
+          </ul>
+          <p className="mt-3 text-sm">
+            To browse instead, see{" "}
+            <Link href="/items" className="font-medium text-brand-700">
+              Items
+            </Link>{" "}
+            or{" "}
+            <Link href="/boxes" className="font-medium text-brand-700">
+              Boxes
+            </Link>
+            .
+          </p>
+        </Card>
+      )}
+
+      {nothing && (
+        <div className="mt-3">
+          <EmptyState>Nothing matches &ldquo;{q}&rdquo;. Try fewer or shorter words.</EmptyState>
+        </div>
+      )}
+
+      {events.length > 0 && (
         <>
-          <SectionTitle>Boxes</SectionTitle>
-          <Card className="mb-2">
+          <SectionTitle>Events</SectionTitle>
+          <Card>
             <ul className="divide-y divide-gray-100">
-              {boxes.map((b) => (
-                <li key={b.id}>
-                  <Link href={`/boxes/${boxCode(b.id)}`} className="flex min-h-14 items-center gap-3 px-4 active:bg-gray-50">
-                    <BoxIcon className="text-brand-700" />
-                    <span className="flex-1">
-                      <span className="block font-semibold">{boxCode(b.id)}</span>
-                      <span className="text-sm text-gray-600">
-                        {b.location ? b.location.name : `In transit to ${b.destination?.name}`} · {plural(b._count.holdings, "item")}
+              {events.map((e) => {
+                const phase = eventPhase(e, today);
+                return (
+                  <li key={e.id}>
+                    <Link href={`/events/${e.id}`} className="flex items-center gap-3 px-4 py-3 active:bg-gray-50">
+                      <CalendarIcon className="shrink-0 text-brand-600" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold">{e.name}</span>
+                          <Badge tone={PHASE_TONE[phase]}>{PHASE_LABEL[phase]}</Badge>
+                        </span>
+                        <span className="block text-sm text-gray-600">
+                          {e.venue.name} · {formatDayRange(e.startDate, e.endDate)}
+                        </span>
                       </span>
+                      <ChevronRightIcon className="shrink-0 text-gray-400" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </>
+      )}
+
+      {locations.length > 0 && (
+        <>
+          <SectionTitle>Locations</SectionTitle>
+          <Card>
+            <ul className="divide-y divide-gray-100">
+              {locations.map((l) => (
+                <li key={l.id}>
+                  <Link href={`/locations/${l.id}`} className="flex items-center gap-3 px-4 py-3 active:bg-gray-50">
+                    <PinIcon className="shrink-0 text-brand-600" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{l.name}</span>
+                        <Badge tone={l.type === "STORAGE" ? "brand" : "amber"}>{l.type === "STORAGE" ? "Storage" : "Event venue"}</Badge>
+                      </span>
+                      <span className="block text-sm text-gray-600">{l.country}</span>
                     </span>
-                    <ChevronRightIcon className="text-gray-400" />
+                    <ChevronRightIcon className="shrink-0 text-gray-400" />
                   </Link>
                 </li>
               ))}
             </ul>
           </Card>
-          <SectionTitle>Items</SectionTitle>
         </>
       )}
-      <p className="mt-2 mb-3 text-sm text-gray-600">
-        {plural(items.length, "item")}
-        {locationId ? " (quantities at the chosen location)" : ""}
-      </p>
-      {items.length === 0 ? (
-        <EmptyState>{filtered ? "Nothing matches. Try a shorter search or fewer filters." : "No items yet. Tap Add to create the first one."}</EmptyState>
-      ) : (
-        <ItemGrid items={items} />
+
+      {boxes.length > 0 && (
+        <>
+          <SectionTitle
+            actions={
+              <Link href={pathWithQuery("/boxes", { q })} className="text-sm font-medium text-brand-700">
+                Open in Boxes →
+              </Link>
+            }
+          >
+            Boxes <span className="font-normal text-gray-500">· {boxes.length}</span>
+          </SectionTitle>
+          <BoxList boxes={boxes.map((b) => boxPreview(b, { showLocation: true }))} back={here} />
+        </>
+      )}
+
+      {items.length > 0 && (
+        <>
+          <SectionTitle
+            actions={
+              <Link href={pathWithQuery("/items", { q })} className="text-sm font-medium text-brand-700">
+                {more ? "See all in Items →" : "Open in Items →"}
+              </Link>
+            }
+          >
+            Items{" "}
+            <span className="font-normal text-gray-500">
+              · {more ? `first ${ITEM_LIMIT}` : plural(items.length, "item")}
+            </span>
+          </SectionTitle>
+          <ItemGrid items={items} back={here} />
+        </>
       )}
     </>
   );

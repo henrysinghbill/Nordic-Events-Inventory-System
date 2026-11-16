@@ -9,11 +9,14 @@ import { UserError } from "./errors";
 import type { Actor } from "./history";
 import { createItem } from "./items";
 import { addStock } from "./stock";
+import { findOrCreateType, typeNameSchema } from "./types";
 
 export type BulkRow = {
   /** Row number as shown in the grid (1-based), used in error messages. */
   row: number;
   name: string;
+  /** Optional type name ("Banner"). A name that doesn't exist yet is added as a new type. Ignored for existing items. */
+  type?: string | null;
   companies: string;
   quantity: number;
   locationId: number;
@@ -37,7 +40,7 @@ export async function bulkAdd(tx: Tx, actor: Actor, rows: BulkRow[]) {
 
   // Check every row first, so all problems are reported at once.
   const errors: Record<string, string> = {};
-  const plans: { row: BulkRow; companyIds: number[]; sameAsRow?: number }[] = [];
+  const plans: { row: BulkRow; companyIds: number[]; typeName?: string; sameAsRow?: number }[] = [];
   const firstNewRowByName = new Map<string, number>();
   for (const row of rows) {
     // A repeated new name in the same batch adds to the item created by its first row.
@@ -64,6 +67,7 @@ export async function bulkAdd(tx: Tx, actor: Actor, rows: BulkRow[]) {
       }
     }
     let companyIds: number[] = [];
+    let typeName: string | undefined;
     if (row.existingItemId) {
       const item = items.get(row.existingItemId);
       if (!item || item.archivedAt) fail("That existing item is gone or archived.");
@@ -71,16 +75,29 @@ export async function bulkAdd(tx: Tx, actor: Actor, rows: BulkRow[]) {
       const match = matchCompanies(row.companies, companies);
       if (match.error) fail(match.error);
       companyIds = match.ids;
+      if (row.type?.trim()) {
+        const parsed = typeNameSchema.safeParse(row.type);
+        if (parsed.success) typeName = parsed.data;
+        else fail("Keep the type under 40 characters.");
+      }
     }
-    plans.push({ row, companyIds });
+    plans.push({ row, companyIds, typeName });
   }
   const bad = Object.keys(errors).length;
   if (bad) throw new UserError(`${bad} row${bad === 1 ? " needs" : "s need"} fixing. Nothing was saved yet.`, errors);
 
+  // Types are looked up (or added) only now, so a batch that needs fixing never leaves new types behind.
+  const typeIds = new Map<string, number>();
+  for (const { typeName } of plans) {
+    const key = typeName?.toLowerCase();
+    if (!typeName || !key || typeIds.has(key)) continue;
+    typeIds.set(key, (await findOrCreateType(tx, actor, typeName)).type.id);
+  }
+
   let created = 0;
   let addedTo = 0;
   const createdByRow = new Map<number, number>();
-  for (const { row, companyIds, sameAsRow } of plans) {
+  for (const { row, companyIds, typeName, sameAsRow } of plans) {
     let itemId: number;
     if (row.existingItemId) {
       itemId = row.existingItemId;
@@ -88,7 +105,8 @@ export async function bulkAdd(tx: Tx, actor: Actor, rows: BulkRow[]) {
     } else if (sameAsRow) {
       itemId = createdByRow.get(sameAsRow)!;
     } else {
-      itemId = (await createItem(tx, actor, { name: row.name.trim(), companyIds, description: null, lowStockThreshold: null })).id;
+      const typeId = typeName ? (typeIds.get(typeName.toLowerCase()) ?? null) : null;
+      itemId = (await createItem(tx, actor, { name: row.name.trim(), companyIds, description: null, lowStockThreshold: null, typeId })).id;
       createdByRow.set(row.row, itemId);
       created++;
     }

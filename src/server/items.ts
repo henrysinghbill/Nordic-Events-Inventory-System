@@ -22,6 +22,8 @@ export const itemFieldsSchema = z.object({
   lowStockThreshold: z
     .union([z.literal("").transform(() => null), z.coerce.number().int().min(0, "Can't be negative.")])
     .nullish(),
+  /** Optional: what kind of thing it is (see types.ts). Empty means no type. */
+  typeId: z.union([z.literal("").transform(() => null), z.coerce.number().int().positive()]).nullish(),
 });
 export type ItemFields = z.infer<typeof itemFieldsSchema>;
 
@@ -32,13 +34,24 @@ async function checkCompanies(tx: Tx, companyIds: number[]) {
   return ids;
 }
 
+async function checkType(tx: Tx, typeId: number | null | undefined) {
+  if (!typeId) return null;
+  const type = await tx.itemType.findUnique({ where: { id: typeId } });
+  if (!type) throw new UserError("That type no longer exists. Choose another one.", { typeId: "Choose another type." });
+  return type;
+}
+
+const typeName = (type: { name: string } | null | undefined) => type?.name ?? "none";
+
 export async function createItem(tx: Tx, actor: Actor, fields: ItemFields, opts: { copyOf?: string } = {}) {
   const companyIds = await checkCompanies(tx, fields.companyIds);
+  const type = await checkType(tx, fields.typeId);
   const item = await tx.item.create({
     data: {
       name: fields.name,
       description: fields.description ?? null,
       lowStockThreshold: fields.lowStockThreshold ?? null,
+      typeId: type?.id ?? null,
       companies: { create: companyIds.map((companyId) => ({ companyId })) },
     },
   });
@@ -53,10 +66,11 @@ export async function createItem(tx: Tx, actor: Actor, fields: ItemFields, opts:
 export async function updateItem(tx: Tx, actor: Actor, itemId: number, fields: ItemFields) {
   const before = await tx.item.findUnique({
     where: { id: itemId },
-    include: { companies: { include: { company: true } } },
+    include: { companies: { include: { company: true } }, type: true },
   });
   if (!before) throw new UserError("That item doesn't exist.");
   const companyIds = await checkCompanies(tx, fields.companyIds);
+  const type = await checkType(tx, fields.typeId);
 
   await tx.itemCompany.deleteMany({ where: { itemId } });
   const item = await tx.item.update({
@@ -65,6 +79,7 @@ export async function updateItem(tx: Tx, actor: Actor, itemId: number, fields: I
       name: fields.name,
       description: fields.description ?? null,
       lowStockThreshold: fields.lowStockThreshold ?? null,
+      typeId: type?.id ?? null,
       companies: { create: companyIds.map((companyId) => ({ companyId })) },
     },
     include: { companies: { include: { company: true } } },
@@ -72,6 +87,7 @@ export async function updateItem(tx: Tx, actor: Actor, itemId: number, fields: I
 
   const changes: string[] = [];
   if (before.name !== item.name) changes.push(`renamed from "${before.name}"`);
+  if (before.typeId !== item.typeId) changes.push(`type ${typeName(before.type)} → ${typeName(type)}`);
   if ((before.description ?? "") !== (item.description ?? "")) changes.push("description changed");
   if (before.lowStockThreshold !== item.lowStockThreshold) {
     changes.push(`low-stock threshold ${before.lowStockThreshold ?? "none"} → ${item.lowStockThreshold ?? "none"}`);
@@ -87,6 +103,32 @@ export async function updateItem(tx: Tx, actor: Actor, itemId: number, fields: I
     });
   }
   return item;
+}
+
+/**
+ * Give several items the same type in one go (the "Items without a type"
+ * page). Items that already have that type are left alone; `typeId` null
+ * removes the type.
+ */
+export async function setItemsType(tx: Tx, actor: Actor, itemIds: number[], typeId: number | null) {
+  const type = await checkType(tx, typeId);
+  const items = await tx.item.findMany({
+    where: { id: { in: [...new Set(itemIds)] } },
+    include: { type: true },
+    orderBy: { name: "asc" },
+  });
+  let changed = 0;
+  for (const item of items) {
+    if (item.typeId === (type?.id ?? null)) continue;
+    await tx.item.update({ where: { id: item.id }, data: { typeId: type?.id ?? null } });
+    await logHistory(tx, actor, {
+      action: "ITEM_EDITED",
+      summary: `Item "${item.name}" edited: type ${typeName(item.type)} → ${typeName(type)}`,
+      itemId: item.id,
+    });
+    changed++;
+  }
+  return { changed, typeName: type?.name ?? null };
 }
 
 export async function setItemArchived(tx: Tx, actor: Actor, itemId: number, archived: boolean) {

@@ -1,8 +1,10 @@
+import Form from "next/form";
 import Link from "next/link";
-import { AlertIcon, BoxIcon, CalendarIcon, CheckIcon, ChevronRightIcon, ImageIcon } from "@/components/icons";
+import { AlertIcon, BoxIcon, CalendarIcon, CheckIcon, ChevronRightIcon, ImageIcon, SearchIcon } from "@/components/icons";
 import { Photo } from "@/components/photo";
 import { LocationCard } from "@/components/location-card";
-import { Badge, Card, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { Badge, Card, cx, EmptyState, inputClass, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { withBack } from "@/lib/back";
 import { trackingUrl } from "@/lib/barcodes";
 import { eventPhase, formatDayRange, PHASE_LABEL, PHASE_TONE, todayIn } from "@/lib/days";
 import { boxCode, plural } from "@/lib/format";
@@ -33,20 +35,40 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
         title={`Hi, ${user.displayName}`}
         actions={
           <>
-            <LinkButton href="/boxes/new" variant="secondary">
+            <LinkButton href={withBack("/boxes/new", "/")} variant="secondary">
               Pack a box
             </LinkButton>
-            <LinkButton href="/items/new" className="hidden md:inline-flex">
-              + Add item
-            </LinkButton>
+            <LinkButton href={withBack("/items/new", "/")}>+ Add item</LinkButton>
           </>
         }
       />
+
       {denied && (
         <p role="alert" className="mb-4 rounded-xl bg-amber-50 p-3 text-amber-900 ring-1 ring-amber-200">
           That page is only for administrators.
         </p>
       )}
+
+      {/* Find anything: one search across items, boxes, events and locations (results on /search). */}
+      <Form action="/search" className="relative mb-4">
+        <SearchIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-gray-400" size={20} />
+        <input
+          type="search"
+          name="q"
+          required
+          placeholder="Find an item, box or event…"
+          aria-label="Find anything"
+          autoComplete="off"
+          enterKeyHint="search"
+          className={cx(inputClass, "pr-24 pl-10")}
+        />
+        <button
+          type="submit"
+          className="absolute top-1/2 right-1.5 min-h-9 -translate-y-1/2 rounded-lg bg-brand-600 px-3 text-sm font-semibold text-white active:bg-brand-800"
+        >
+          Search
+        </button>
+      </Form>
 
       {(lowStock.length > 0 || missingPhotos > 0) && (
         <>
@@ -55,7 +77,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
             <ul className="divide-y divide-gray-100">
               {lowStock.map((i) => (
                 <li key={i.id}>
-                  <Link href={`/items/${i.id}`} className="flex items-center gap-3 px-4 py-2.5 active:bg-gray-50">
+                  <Link href={withBack(`/items/${i.id}`, "/")} className="flex items-center gap-3 px-4 py-2.5 active:bg-gray-50">
                     <Photo photoKey={i.photoKey} alt="" className="h-11 w-11 shrink-0 rounded-lg" />
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium">{i.name}</span>
@@ -69,7 +91,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
               ))}
               {missingPhotos > 0 && (
                 <li>
-                  <Link href="/search?missingPhoto=1" className="flex items-center gap-3 px-4 py-2.5 active:bg-gray-50">
+                  <Link href="/items?missingPhoto=1" className="flex items-center gap-3 px-4 py-2.5 active:bg-gray-50">
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
                       <ImageIcon size={22} />
                     </span>
@@ -137,7 +159,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                 const waybill = b.barcodes[0]?.value;
                 return (
                   <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-                    <Link href={`/boxes/${boxCode(b.id)}`} className="flex min-w-0 flex-1 items-center gap-2">
+                    <Link href={withBack(`/boxes/${boxCode(b.id)}`, "/")} className="flex min-w-0 flex-1 items-center gap-2">
                       <BoxIcon className="shrink-0 text-amber-600" size={20} />
                       <span className="min-w-0">
                         <span className="block font-semibold">{boxCode(b.id)}</span>

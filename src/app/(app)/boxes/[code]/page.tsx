@@ -4,9 +4,11 @@ import { notFound, redirect } from "next/navigation";
 import { HistoryList } from "@/components/history-list";
 import { Photo } from "@/components/photo";
 import { Badge, Card, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { safeBackPath, withBack } from "@/lib/back";
 import { parseBoxCode, trackingUrl } from "@/lib/barcodes";
 import { boxCode, plural } from "@/lib/format";
 import { requireUser } from "@/server/auth/session";
+import { backLink } from "@/server/back";
 import { config } from "@/server/config";
 import { fmtDate, fmtDateTime } from "@/server/dates";
 import { activeLocations, boxDetail, history } from "@/server/queries";
@@ -29,17 +31,26 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
 
   const [box, locations, entries] = await Promise.all([boxDetail(id), activeLocations(), history({ boxId: id }, 50)]);
   if (!box) notFound();
-  const { packed } = await searchParams;
+  const sp = await searchParams;
+  const { packed } = sp;
 
   const atLocation = box.status === "AT_LOCATION" && box.location;
   const pieces = box.holdings.reduce((s, h) => s + h.quantity, 0);
   const waybill = box.barcodes.find((b) => b.type === "DHL_WAYBILL");
-  const backHref = box.location ? `/locations/${box.location.id}` : "/";
+  // Back to wherever the box was opened from (the Boxes list, an event, an item…);
+  // otherwise to its location, or to the Boxes list while it's on the move.
+  const cameFrom = safeBackPath(sp.back);
+  const back = await backLink(
+    cameFrom,
+    box.location ? { href: `/locations/${box.location.id}`, label: box.location.name } : { href: "/boxes", label: "Boxes" },
+  );
+  /** This page's own address, so the items it links to can come back here. */
+  const here = withBack(`/boxes/${code}`, cameFrom);
 
   if (box.deletedAt) {
     return (
       <>
-        <PageHeader back={{ href: "/", label: "Home" }} title={code} subtitle={<Badge>Discarded {fmtDate(box.deletedAt)}</Badge>} />
+        <PageHeader back={back} title={code} subtitle={<Badge>Discarded {fmtDate(box.deletedAt)}</Badge>} />
         <p className="mb-4 text-gray-700">This box was discarded. It no longer appears in lists, but its history is kept.</p>
         <SectionTitle>History</SectionTitle>
         <HistoryList entries={entries} />
@@ -50,7 +61,7 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
   return (
     <>
       <PageHeader
-        back={{ href: backHref, label: box.location?.name ?? "Home" }}
+        back={back}
         title={code}
         subtitle={
           <span className="flex flex-wrap items-center gap-2 pt-1">
@@ -173,12 +184,12 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
               <ul className="divide-y divide-gray-100">
                 {box.holdings.map((h) => (
                   <li key={h.id}>
-                    <Link href={`/items/${h.item.id}`} className="flex items-center gap-3 px-4 py-2 active:bg-gray-50">
+                    <Link href={withBack(`/items/${h.item.id}`, here)} className="flex items-center gap-3 px-4 py-2 active:bg-gray-50">
                       <Photo photoKey={h.item.photos[0]?.key} alt="" className="h-14 w-14 shrink-0 rounded-lg" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">{h.item.name}</p>
                         <p className="truncate text-sm text-gray-500">
-                          {h.item.companies.map((c) => c.company.name).join(", ")}
+                          {[h.item.type?.name, ...h.item.companies.map((c) => c.company.name)].filter(Boolean).join(" · ")}
                         </p>
                       </div>
                       <span className="text-xl font-semibold">{h.quantity}</span>
@@ -219,7 +230,7 @@ export default async function BoxPage({ params, searchParams }: PageProps<"/boxe
 
       {box.holdings.length === 0 && (
         <div className="mt-6">
-          <DeleteBoxButton boxId={box.id} code={code} afterHref={backHref} />
+          <DeleteBoxButton boxId={box.id} code={code} afterHref={back.href} />
         </div>
       )}
     </>

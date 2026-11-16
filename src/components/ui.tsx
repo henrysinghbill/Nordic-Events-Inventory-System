@@ -94,5 +94,13 @@ export function EmptyState({ children }: { children: ReactNode }) {
   return <div className="rounded-2xl border-2 border-dashed border-gray-300 p-6 text-center text-gray-600">{children}</div>;
 }
 
+/** A pill-shaped choice (filters, type pickers): filled when it is the chosen one. */
+export function chipClass(on: boolean) {
+  return cx(
+    "inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 font-medium whitespace-nowrap transition-colors",
+    on ? "border-brand-600 bg-brand-600 text-white" : "border-gray-300 bg-white text-gray-800 active:bg-gray-100",
+  );
+}
+
 export const inputClass =
   "block w-full rounded-xl border border-gray-300 bg-white px-3 min-h-12 text-base shadow-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-200 focus:outline-none disabled:bg-gray-100";

@@ -29,11 +29,18 @@ export default async function MenuPage() {
       <Card>
         <ul className="divide-y divide-gray-100">
           <MenuLink href="/events">Events</MenuLink>
-          <MenuLink href="/search">Search items</MenuLink>
-          <MenuLink href="/items/bulk">Bulk entry (best on a computer)</MenuLink>
-          <MenuLink href="/search?missingPhoto=1">Items without a photo</MenuLink>
           <MenuLink href="/locations">Locations</MenuLink>
+          <MenuLink href="/search">Search everything</MenuLink>
           <MenuLink href="/activity">Recent activity</MenuLink>
+        </ul>
+      </Card>
+      <SectionTitle>Adding and tidying up</SectionTitle>
+      <Card>
+        <ul className="divide-y divide-gray-100">
+          <MenuLink href="/items/new">Add item</MenuLink>
+          <MenuLink href="/items/bulk">Bulk entry (best on a computer)</MenuLink>
+          <MenuLink href="/items?missingPhoto=1">Items without a photo</MenuLink>
+          <MenuLink href="/items/untyped">Items without a type</MenuLink>
         </ul>
       </Card>
       <Card className="mt-3">
@@ -52,6 +59,7 @@ export default async function MenuPage() {
           <Card>
             <ul className="divide-y divide-gray-100">
               <MenuLink href="/admin/companies">Companies</MenuLink>
+              <MenuLink href="/admin/types">Item types</MenuLink>
               <MenuLink href="/admin/locations">Locations</MenuLink>
               <MenuLink href="/admin/users">Users</MenuLink>
             </ul>

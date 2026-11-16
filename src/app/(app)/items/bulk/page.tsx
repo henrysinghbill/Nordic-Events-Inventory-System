@@ -3,15 +3,16 @@ import { EmptyState, PageHeader } from "@/components/ui";
 import { boxCode } from "@/lib/format";
 import { requireUser } from "@/server/auth/session";
 import { db } from "@/server/db";
-import { activeCompanies, activeLocations } from "@/server/queries";
+import { activeCompanies, activeLocations, itemTypes } from "@/server/queries";
 import { BulkGrid } from "./bulk-grid";
 
 export const metadata: Metadata = { title: "Bulk entry" };
 
 export default async function BulkEntryPage() {
   await requireUser();
-  const [companies, locations, boxes, items] = await Promise.all([
+  const [companies, types, locations, boxes, items] = await Promise.all([
     activeCompanies(),
+    itemTypes(),
     activeLocations(),
     db.box.findMany({ where: { deletedAt: null, status: "AT_LOCATION" }, orderBy: { id: "desc" } }),
     db.item.findMany({ where: { archivedAt: null }, select: { id: true, name: true } }),
@@ -32,6 +33,7 @@ export default async function BulkEntryPage() {
       ) : (
         <BulkGrid
           companies={companies.map((c) => ({ id: c.id, name: c.name }))}
+          types={types.map((t) => ({ id: t.id, name: t.name }))}
           locations={locations.map((l) => ({ id: l.id, name: l.name }))}
           boxes={boxes.map((b) => ({ id: b.id, code: boxCode(b.id), locationId: b.locationId! }))}
           items={items}

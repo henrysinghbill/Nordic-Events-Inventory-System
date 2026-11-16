@@ -2,22 +2,40 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HomeIcon, MenuIcon, PlusIcon, ScanIcon, SearchIcon } from "./icons";
+import type { ComponentType } from "react";
+import { BoxIcon, CalendarIcon, GridIcon, HomeIcon, MenuIcon, ScanIcon } from "./icons";
 import { cx } from "./ui";
 
-const ADD_PAGES = ["/items/new", "/items/bulk"];
+type NavLink = {
+  href: string;
+  label: string;
+  icon: ComponentType<{ size?: number }>;
+  /** The big button in the middle of the phone bar. */
+  primary?: boolean;
+  /** Only in the top bar on computers; on phones it is reached through More. */
+  desktopOnly?: boolean;
+  match: (path: string) => boolean;
+};
 
-const LINKS = [
-  { href: "/", label: "Home", icon: HomeIcon, match: (p: string) => p === "/" || p.startsWith("/locations") },
-  {
-    href: "/search",
-    label: "Search",
-    icon: SearchIcon,
-    match: (p: string) => p.startsWith("/search") || (p.startsWith("/items/") && !ADD_PAGES.includes(p)),
-  },
-  { href: "/scan", label: "Scan", icon: ScanIcon, primary: true, match: (p: string) => p.startsWith("/scan") },
-  { href: "/items/new", label: "Add item", icon: PlusIcon, match: (p: string) => ADD_PAGES.includes(p) },
-  { href: "/menu", label: "More", icon: MenuIcon, match: (p: string) => p.startsWith("/menu") || p.startsWith("/admin") },
+/** True for the section's own page and everything below it ("/items", "/items/12", not "/items-old"). */
+const under =
+  (...sections: string[]) =>
+  (path: string) =>
+    sections.some((s) => path === s || path.startsWith(`${s}/`));
+
+/**
+ * One place for each thing people look for:
+ *   Home  — what's going on (warnings, events, in transit, locations) and "find anything"
+ *   Items — everything we have, with search and filters
+ *   Boxes — every box and what's in it
+ */
+const LINKS: NavLink[] = [
+  { href: "/", label: "Home", icon: HomeIcon, match: (p) => p === "/" || under("/locations", "/search")(p) },
+  { href: "/items", label: "Items", icon: GridIcon, match: under("/items") },
+  { href: "/scan", label: "Scan", icon: ScanIcon, primary: true, match: under("/scan") },
+  { href: "/boxes", label: "Boxes", icon: BoxIcon, match: under("/boxes") },
+  { href: "/events", label: "Events", icon: CalendarIcon, desktopOnly: true, match: under("/events") },
+  { href: "/menu", label: "More", icon: MenuIcon, match: under("/menu", "/admin", "/activity") },
 ];
 
 /** Phones: fixed bottom bar with a big centre button. */
@@ -26,8 +44,9 @@ export function BottomNav() {
   return (
     <nav className="bottom-safe fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur md:hidden">
       <ul className="mx-auto flex max-w-lg items-end justify-around px-1">
-        {LINKS.map(({ href, label, icon: Icon, primary, match }) => {
-          const active = match(pathname);
+        {LINKS.filter((l) => !l.desktopOnly).map(({ href, label, icon: Icon, primary, match }) => {
+          // Events has no button of its own on phones, so More lights up for it.
+          const active = match(pathname) || (href === "/menu" && under("/events")(pathname));
           return (
             <li key={href} className="flex-1">
               {primary ? (
@@ -67,6 +86,7 @@ export function TopNavLinks() {
         <li key={href}>
           <Link
             href={href}
+            aria-current={match(pathname) ? "page" : undefined}
             className={cx(
               "rounded-lg px-3 py-2 font-medium",
               primary

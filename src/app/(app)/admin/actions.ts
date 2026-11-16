@@ -27,6 +27,7 @@ import { hashPassword } from "@/server/auth/providers/local";
 import { requireAdmin, toActor } from "@/server/auth/session";
 import { db } from "@/server/db";
 import { parseInput, UserError } from "@/server/errors";
+import { deleteType, findOrCreateType, renameType, typeNameSchema } from "@/server/types";
 
 /** Run an admin-only change in a transaction, then refresh the page. */
 async function adminChange(
@@ -74,6 +75,44 @@ export async function removeCompanyAction(id: number): Promise<ActionResult> {
 
 export async function restoreCompanyAction(id: number) {
   return adminChange((tx, actor) => restoreCompany(tx, actor, id), "Company restored.");
+}
+
+// ---------------------------------------------------------------- item types
+// Anyone can add a type while filling in an item (see items/actions.ts);
+// renaming and deleting is done here, by administrators.
+
+const typeId = z.number().int().positive();
+
+export async function addTypeAction(form: FormData): Promise<ActionResult> {
+  return safeAction(async () => {
+    const admin = await requireAdmin();
+    const { name } = parseInput(z.object({ name: typeNameSchema }), { name: form.get("name") });
+    const { type, created } = await db.$transaction((tx) => findOrCreateType(tx, toActor(admin), name));
+    if (!created) throw new UserError(`"${type.name}" already exists.`, { name: "That name is already used." });
+    refresh();
+    return { ok: true, message: `Added "${type.name}".` };
+  });
+}
+
+export async function renameTypeAction(id: number, form: FormData) {
+  return safeAction(async () => {
+    const { name } = parseInput(z.object({ name: typeNameSchema }), { name: form.get("name") });
+    const checkedId = parseInput(typeId, id);
+    return adminChange((tx, actor) => renameType(tx, actor, checkedId, name), "Type renamed.");
+  });
+}
+
+export async function deleteTypeAction(id: number): Promise<ActionResult> {
+  return safeAction(async () => {
+    const admin = await requireAdmin();
+    const checkedId = parseInput(typeId, id);
+    const count = await db.$transaction((tx) => deleteType(tx, toActor(admin), checkedId));
+    refresh();
+    return {
+      ok: true,
+      message: count ? `Type deleted. ${count} item${count === 1 ? " has" : "s have"} no type now.` : "Type deleted.",
+    };
+  });
 }
 
 // ---------------------------------------------------------------- locations

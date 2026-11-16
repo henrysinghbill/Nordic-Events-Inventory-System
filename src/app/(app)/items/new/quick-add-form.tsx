@@ -1,15 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FormError } from "@/components/action-form";
 import { CompanyChips, QuantityInput } from "@/components/form-controls";
 import { CameraIcon, ImageIcon } from "@/components/icons";
 import { Photo } from "@/components/photo";
 import { useToast } from "@/components/toast";
+import { TypePicker } from "@/components/type-picker";
 import { Button, Card, cx, inputClass } from "@/components/ui";
 import { newRequestId, useServerAction } from "@/components/use-server-action";
 import { resizeImage } from "@/lib/resize-image";
+import { suggestType, type TypeOption } from "@/lib/type-suggest";
 import { quickAddAction } from "../actions";
 
 type Suggestion = { id: number; name: string; photoKey: string | null; companyIds: number[] };
@@ -17,20 +19,23 @@ type Suggestion = { id: number; name: string; photoKey: string | null; companyId
 /**
  * Quick-add on a phone: photo first, then the details.
  * "Save & add another" keeps the location, box and companies for the next item.
+ * The type is suggested from the name ("…roll-up banner" → Banner) until one is picked by hand.
  */
 export function QuickAddForm({
   companies,
+  types,
   locations,
   boxes,
   defaultLocationId,
   duplicateOf,
 }: {
   companies: { id: number; name: string }[];
+  types: TypeOption[];
   locations: { id: number; name: string; country: string }[];
   boxes: { id: number; code: string; locationId: number; description: string | null }[];
   defaultLocationId?: number;
-  /** "Duplicate" on an item page: start from that item's name and companies. */
-  duplicateOf?: { id: number; name: string; companyIds: number[] };
+  /** "Duplicate" on an item page: start from that item's name, companies and type. */
+  duplicateOf?: { id: number; name: string; companyIds: number[]; typeId: number | null };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -47,6 +52,10 @@ export function QuickAddForm({
   const [existing, setExisting] = useState<Suggestion | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [companyIds, setCompanyIds] = useState<number[]>(duplicateOf?.companyIds ?? []);
+  // The type picked by hand (undefined: nothing picked yet, so the suggestion from the name applies).
+  const [pickedTypeId, setPickedTypeId] = useState<number | null | undefined>(duplicateOf?.typeId ?? undefined);
+  const suggestedTypeId = useMemo(() => suggestType(name, types)?.id ?? null, [name, types]);
+  const typeId = pickedTypeId === undefined ? suggestedTypeId : pickedTypeId;
   const [quantity, setQuantity] = useState("1");
   const [locationId, setLocationId] = useState(String(defaultLocationId ?? locations[0]?.id ?? ""));
   const [boxId, setBoxId] = useState("");
@@ -110,6 +119,7 @@ export function QuickAddForm({
       if (addPhotoToExisting) form.set("addPhoto", "1");
     } else {
       form.set("name", name);
+      if (typeId) form.set("typeId", String(typeId));
       companyIds.forEach((id) => form.append("companyIds", String(id)));
       if (duplicate) form.set("duplicateOf", String(duplicate.id));
     }
@@ -124,6 +134,7 @@ export function QuickAddForm({
       setPhoto(null);
       setPreview(null);
       setName("");
+      setPickedTypeId(undefined);
       setExisting(null);
       setDuplicate(null);
       setQuantity("1");
@@ -143,8 +154,8 @@ export function QuickAddForm({
 
   const duplicateBanner = duplicate && (
     <p className="rounded-xl bg-brand-50 p-3 text-brand-800 ring-1 ring-brand-200">
-      Duplicating <strong>{duplicate.name}</strong>: companies, description and low-stock level are copied. Take a photo and
-      change the name.
+      Duplicating <strong>{duplicate.name}</strong>: type, companies, description and low-stock level are copied. Take a
+      photo and change the name.
     </p>
   );
 
@@ -255,10 +266,19 @@ export function QuickAddForm({
           </label>
         )
       ) : (
-        <div>
-          <p className="mb-1 font-medium">Companies</p>
-          <CompanyChips companies={companies} selected={companyIds} onChange={setCompanyIds} error={fieldErrors.companyIds} />
-        </div>
+        <>
+          <div>
+            <p className="mb-1 font-medium">
+              Type <span className="font-normal text-gray-500">(optional)</span>
+            </p>
+            <TypePicker types={types} value={typeId} onChange={setPickedTypeId} suggested={pickedTypeId === undefined} />
+            {fieldErrors.typeId && <p className="mt-1 text-sm font-medium text-red-700">{fieldErrors.typeId}</p>}
+          </div>
+          <div>
+            <p className="mb-1 font-medium">Companies</p>
+            <CompanyChips companies={companies} selected={companyIds} onChange={setCompanyIds} error={fieldErrors.companyIds} />
+          </div>
+        </>
       )}
 
       <div>

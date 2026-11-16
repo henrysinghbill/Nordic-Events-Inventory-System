@@ -4,6 +4,7 @@ import { FilterSelect } from "@/components/filter-bar";
 import { HistoryList } from "@/components/history-list";
 import { ItemGrid } from "@/components/item-grid";
 import { Badge, EmptyState, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
+import { pathWithQuery, withBack } from "@/lib/back";
 import { boxCode, plural } from "@/lib/format";
 import { toId } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
@@ -30,6 +31,8 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
   const boxes = companyId
     ? filled.filter((b) => b.holdings.some((h) => h.item.companies.some((c) => c.companyId === companyId)))
     : filled;
+  /** This page as it is now, so items and boxes opened from here link back to it. */
+  const here = pathWithQuery(`/locations/${location.id}`, { company: companyId });
 
   return (
     <>
@@ -48,8 +51,8 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
         actions={
           !location.archivedAt && (
             <>
-              <LinkButton href={`/boxes/new?location=${location.id}`}>Pack a box</LinkButton>
-              <LinkButton href={`/items/new?location=${location.id}`} variant="secondary">
+              <LinkButton href={withBack(`/boxes/new?location=${location.id}`, here)}>Pack a box</LinkButton>
+              <LinkButton href={withBack(`/items/new?location=${location.id}`, here)} variant="secondary">
                 + Add items
               </LinkButton>
             </>
@@ -82,11 +85,13 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
         <EmptyState>{companyId ? "No loose items for this company here." : "No loose items here."}</EmptyState>
       ) : (
         <ItemGrid
+          back={here}
           items={loose.map((h) => ({
             id: h.item.id,
             name: h.item.name,
             photoKey: h.item.photos[0]?.key ?? null,
             quantity: h.quantity,
+            type: h.item.type?.name,
             companies: h.item.companies.map((c) => c.company.name).sort(),
             archived: Boolean(h.item.archivedAt),
           }))}
@@ -107,7 +112,7 @@ export default async function LocationPage({ params, searchParams }: PageProps<"
       {boxes.length === 0 ? (
         <EmptyState>{companyId ? "No boxes with this company's items here." : "No packed boxes here."}</EmptyState>
       ) : (
-        <BoxList boxes={boxes} />
+        <BoxList boxes={boxes} back={here} />
       )}
 
       {empty.length > 0 && (

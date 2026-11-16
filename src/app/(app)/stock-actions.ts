@@ -68,6 +68,7 @@ export async function bulkAddAction(form: FormData): Promise<ActionResult<{ crea
             z.object({
               row: z.number().int().positive(),
               name: z.string().max(300),
+              type: z.string().max(100).nullish(),
               companies: z.string().max(500),
               quantity: z.number(),
               locationId: z.number().int(),
