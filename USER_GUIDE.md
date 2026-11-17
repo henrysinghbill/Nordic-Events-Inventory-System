@@ -134,6 +134,8 @@ More → **Events** (or the Events section on Home) → **+ New event**: name, v
 - **Boxes:** every box, grouped by where it is (boxes in transit first), with what's inside.
   Search by box number, DHL number, description or contents. Filter by location or event.
 - **Home → Find anything:** one search across items, boxes, events and locations.
+- **A location's page** (tap it on Home) has its own search: it narrows down the loose items
+  and boxes there, by item name, type, company, box number or description.
 - **Home** also shows each location, boxes in transit, upcoming events, and warnings (low
   stock, items without a photo).
 - An item's page shows **every place it is** (loose or in which box) and its full history.

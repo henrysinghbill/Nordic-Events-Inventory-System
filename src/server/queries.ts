@@ -250,7 +250,15 @@ export function boxesAtLocation(locationId: number) {
     where: { locationId, deletedAt: null },
     include: {
       holdings: {
-        include: { item: { include: { photos: mainPhoto, companies: { select: { companyId: true } } } } },
+        include: {
+          item: {
+            include: {
+              photos: mainPhoto,
+              type: { select: { name: true } },
+              companies: { select: { companyId: true, company: { select: { name: true } } } },
+            },
+          },
+        },
         orderBy: { quantity: "desc" },
       },
     },
